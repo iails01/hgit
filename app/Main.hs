@@ -1,6 +1,9 @@
 module Main where
 
 import Opt(CmdOpts(..), execParser)
+import Cmd.Init(initRepo)
+import Cmd.HashObject(hashObject)
+
 
 main :: IO ()
 main = do
@@ -8,4 +11,6 @@ main = do
     handleCmd opts
 
 handleCmd :: CmdOpts -> IO ()
-handleCmd Init = putStrLn "Hello, World!"
+handleCmd Init = initRepo
+
+handleCmd (HashObject opt) = hashObject opt
