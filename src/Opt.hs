@@ -11,7 +11,7 @@ data CmdOpts = Init
 parserInfo :: ParserInfo CmdOpts
 parserInfo = info (helper <*> cmdParser)
   ( fullDesc
-  <> header "hgit" )
+  <> header "hgit - DIY Git in Haskell" )
 
 cmdParser :: Parser CmdOpts
 cmdParser = hsubparser (command "init" (info initCmdParser (progDesc "Init repository")))
