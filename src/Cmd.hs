@@ -3,7 +3,7 @@
 module Cmd(CatFileOpt(..), HashObjectOpt(..), WriteTreeOpt(..), initRepo, catFile, hashObject, writeTree) where
 
 import qualified Data.ByteString.Char8 as Char8
-import Data (getObject)
+import Data (getObject,)
 
 import System.Directory
     ( createDirectoryIfMissing,
@@ -14,6 +14,9 @@ import System.Exit (exitFailure)
 
 import Const
 import qualified Data
+import qualified Base
+import qualified Data.ByteString.Lazy as Lazy
+import qualified Data.ByteString.Lazy.Char8 as LazyChar8
 
 preCheck :: IO a -> IO a
 preCheck action = do
@@ -21,7 +24,7 @@ preCheck action = do
     if repoExists then do
         action
     else do
-        hPutStrLn stderr "Repository not initialized."
+        hPutStrLn stderr "Repository not initialized!"
         exitFailure
 
 initRepo :: IO ()
@@ -39,11 +42,13 @@ newtype HashObjectOpt = MkHashObjectOpt String
 
 hashObject :: HashObjectOpt -> IO ()
 hashObject (MkHashObjectOpt file) = preCheck $ do
-    hash <- Data.hashObject file
-    putStrLn ("saved: " <> hash)
+    content <- Lazy.readFile file
+    hash <- Data.hashObject Data.Blob content
+    LazyChar8.putStrLn ("saved: " <> hash)
 
 data WriteTreeOpt = MkWriteTreeOpt FilePath
 
 writeTree :: WriteTreeOpt -> IO ()
 writeTree (MkWriteTreeOpt file) = preCheck $ do
-    Data.writeTree file
+    Base.writeTree file
+    pure ()
