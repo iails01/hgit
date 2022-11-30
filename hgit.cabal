@@ -28,13 +28,13 @@ library hgit-lib
                       Cmd.CatFile
                       
     other-modules:    Const,
+                      Data,
                       Cmd.CmdComm
 
     build-depends:    base ^>=4.14.3.0,
                       optparse-applicative,
                       directory,
                       cryptohash,
-                      utf8-string,
                       bytestring
 
     hs-source-dirs:   src

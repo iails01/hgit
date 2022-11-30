@@ -1,13 +1,15 @@
+{-# LANGUAGE OverloadedStrings #-}
+
 module Cmd.CatFile where
-import Const (objectsDir)
-import System.Directory (doesFileExist)
-import Control.Monad (when)
+
 import Cmd.CmdComm (preCheck)
+import qualified Data.ByteString.Char8 as Char8
+import Data (getObject)
 
 data Opt = Opt String
 
 catFile :: Opt -> IO ()
 catFile (Opt hash) = preCheck $ do
-    let file = objectsDir <> "/" <> hash
-    exists <- doesFileExist file
-    when exists $ readFile file >>= putStrLn
+    content <- getObject hash
+    maybe (pure ()) Char8.putStrLn content
+    
