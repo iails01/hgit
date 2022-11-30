@@ -2,13 +2,12 @@
 {-# LANGUAGE DeriveAnyClass #-}
 
 module Data(hashObject, getObject, ObjType(..), getObjType) where
-import qualified Data.ByteString.Lazy as Lazy
-import qualified Data.ByteString as Strict
 import Text.Printf (printf)
-import Crypto.Hash.SHA1 (hashlazy)
+import Crypto.Hash.SHA1 (hashlazy, hash)
 import System.Directory (createDirectoryIfMissing, doesFileExist, doesDirectoryExist, getDirectoryContents)
 import Const (objectsDir, repoDir)
-import Data.ByteString (ByteString)
+import Data.ByteString (ByteString, unpack, breakSubstring)
+import Data.ByteString as BS
 import Control.Monad (when, forM)
 import System.FilePath ((</>))
 import System.Exit (exitFailure)
@@ -17,22 +16,22 @@ import Data.String(fromString)
 
 data ObjType = Blob | Tree deriving(Eq, Ord)
 
-hashObject :: ObjType -> Lazy.ByteString -> IO Lazy.ByteString 
+hashObject :: ObjType -> ByteString -> IO ByteString 
 hashObject objType content = do
     let hash = toHexHash content
     createDirectoryIfMissing False objectsDir
-    Lazy.writeFile (objectsDir </> hash) (getObjType objType <> "\0" <> content)
+    BS.writeFile (objectsDir </> hash) (getObjType objType <> "\0" <> content)
     pure $ fromString hash
 
-getObjType :: ObjType -> Lazy.ByteString
+getObjType :: ObjType -> ByteString
 getObjType Blob = "blob"
 getObjType Tree = "tree"
 
-toHexHash :: Lazy.ByteString -> String
-toHexHash = toHex . hashlazy
+toHexHash :: ByteString -> String
+toHexHash = toHex . hash
   where
-    toHex :: Strict.ByteString -> String
-    toHex bytes = Strict.unpack bytes >>= printf "%02x"
+    toHex :: ByteString -> String
+    toHex bytes = unpack bytes >>= printf "%02x"
 
 test :: IO ()
 test = do
@@ -43,7 +42,7 @@ getObject hash = do
     let file = objectsDir </> hash
     exists <- doesFileExist file
     if exists then do
-        bs <- Strict.readFile file
-        let (fileType, content) = Strict.breakSubstring "\0" bs
+        bs <- BS.readFile file
+        let (fileType, content) = breakSubstring "\0" bs
         pure $ Just content
     else pure Nothing

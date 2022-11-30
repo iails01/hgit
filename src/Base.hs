@@ -9,11 +9,11 @@ import System.Directory (doesDirectoryExist, getDirectoryContents)
 import Control.Monad (when, forM)
 import Data (hashObject, getObjType, ObjType (..))
 import System.FilePath ((</>))
-import qualified Data.ByteString.Lazy as Lazy
+import qualified Data.ByteString as BS
 import Data.List (sort, intercalate)
 import Data.String ( IsString(fromString) )
 
-writeTree :: FilePath -> IO Lazy.ByteString 
+writeTree :: FilePath -> IO BS.ByteString 
 writeTree dir = do
     when (dir == repoDir) (hPutStrLn stderr "Cannot write repository!" >> exitFailure)
     exists <- doesDirectoryExist dir
@@ -26,11 +26,11 @@ writeTree dir = do
             hash <- writeTree path
             pure (hash, fromString e, Tree)
         else do
-            content <- Lazy.readFile path
+            content <- BS.readFile path
             hash <- hashObject Blob content
             pure (hash, fromString e, Blob)
     let lines = map (\(hash, name, objType) -> hash <> " " <> name <> " " <> getObjType objType) (sort paths)
-    let content = Lazy.intercalate "\n" lines
+    let content = BS.intercalate "\n" lines
     hashObject Tree content
 
 listFiles :: FilePath -> IO [FilePath]

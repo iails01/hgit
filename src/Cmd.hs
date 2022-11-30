@@ -15,8 +15,7 @@ import System.Exit (exitFailure)
 import Const
 import qualified Data
 import qualified Base
-import qualified Data.ByteString.Lazy as Lazy
-import qualified Data.ByteString.Lazy.Char8 as LazyChar8
+import qualified Data.ByteString as BS
 
 preCheck :: IO a -> IO a
 preCheck action = do
@@ -42,9 +41,9 @@ newtype HashObjectOpt = MkHashObjectOpt String
 
 hashObject :: HashObjectOpt -> IO ()
 hashObject (MkHashObjectOpt file) = preCheck $ do
-    content <- Lazy.readFile file
+    content <- BS.readFile file
     hash <- Data.hashObject Data.Blob content
-    LazyChar8.putStrLn ("saved: " <> hash)
+    Char8.putStrLn ("saved: " <> hash)
 
 data WriteTreeOpt = MkWriteTreeOpt FilePath
 
