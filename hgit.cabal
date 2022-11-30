@@ -25,14 +25,17 @@ library hgit-lib
     exposed-modules:  Opt,
                       Cmd.Init,
                       Cmd.HashObject
+                      Cmd.CatFile
                       
-    other-modules:    Const
+    other-modules:    Const,
+                      Cmd.CmdComm
 
     build-depends:    base ^>=4.14.3.0,
                       optparse-applicative,
                       directory,
-                      cryptohash-sha1,
-                      utf8-string
+                      cryptohash,
+                      utf8-string,
+                      bytestring
 
     hs-source-dirs:   src
 
