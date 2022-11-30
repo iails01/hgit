@@ -11,29 +11,27 @@ import Data (hashObject, getObjType, ObjType (..))
 import System.FilePath ((</>))
 import qualified Data.ByteString.Lazy as Lazy
 import Data.List (sort, intercalate)
-import qualified Data.String as Lazy
-import Data.String
+import Data.String ( IsString(fromString) )
 
 writeTree :: FilePath -> IO Lazy.ByteString 
 writeTree dir = do
     when (dir == repoDir) (hPutStrLn stderr "Cannot write repository!" >> exitFailure)
     exists <- doesDirectoryExist dir
-    if exists then do
-        ds <- getDirectoryContents dir
-        paths <- forM (filter (`notElem` [".","..",repoDir]) ds) $ \e -> do
-            let path = dir </> e
-            isDir <- doesDirectoryExist path
-            if isDir then do
-                hash <- writeTree path
-                pure (hash, fromString e, Tree)
-            else do
-                content <- Lazy.readFile path
-                hash <- hashObject Blob content
-                pure (hash, fromString e, Blob)
-        let lines = map (\(hash, name, objType) -> hash <> " " <> name <> " " <> getObjType objType) (sort paths)
-        let content = Lazy.intercalate "\n" lines
-        hashObject Tree content
-    else pure ""
+    when (not exists) (hPutStrLn stderr ("Directory " <> dir <> " not exists!") >> exitFailure)
+    ds <- getDirectoryContents dir
+    paths <- forM (filter (`notElem` [".","..",repoDir]) ds) $ \e -> do
+        let path = dir </> e
+        isDir <- doesDirectoryExist path
+        if isDir then do
+            hash <- writeTree path
+            pure (hash, fromString e, Tree)
+        else do
+            content <- Lazy.readFile path
+            hash <- hashObject Blob content
+            pure (hash, fromString e, Blob)
+    let lines = map (\(hash, name, objType) -> hash <> " " <> name <> " " <> getObjType objType) (sort paths)
+    let content = Lazy.intercalate "\n" lines
+    hashObject Tree content
 
 listFiles :: FilePath -> IO [FilePath]
 listFiles root = do
