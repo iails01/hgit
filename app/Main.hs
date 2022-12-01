@@ -1,7 +1,7 @@
 module Main where
 
-import Opt(CmdOpts(..), execParser)
-import Cmd(initRepo, hashObject, catFile, writeTree)
+import Opt
+import Cmd
 
 main :: IO ()
 main = do

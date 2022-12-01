@@ -2,7 +2,7 @@
 
 module Base(writeTree) where
     
-import Const (repoDir)
+import Const
 import System.IO (hPutStrLn, stderr)
 import System.Exit (exitFailure)
 import System.Directory (doesDirectoryExist, getDirectoryContents)

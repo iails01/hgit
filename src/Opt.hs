@@ -7,7 +7,7 @@ import qualified Options.Applicative
 import Options.Applicative hiding (execParser)
 import Options.Applicative.Types (ReadM(ReadM))
 import Data.Functor ((<&>))
-import Cmd(HashObjectOpt(..), CatFileOpt(..), WriteTreeOpt(..))
+import Cmd
 
 data CmdOpts
   = Init
