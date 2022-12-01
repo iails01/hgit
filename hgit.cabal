@@ -35,7 +35,8 @@ library hgit-lib
                       directory,
                       filepath,
                       cryptohash,
-                      bytestring
+                      bytestring,
+                      utf8-string
 
     hs-source-dirs:   src
 

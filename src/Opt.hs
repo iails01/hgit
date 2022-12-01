@@ -14,6 +14,7 @@ data CmdOpts
   | HashObject !HashObjectOpt
   | CatFile !CatFileOpt
   | WriteTree !WriteTreeOpt
+  | ReadTree !ReadTreeOpt
 
 parserInfo :: ParserInfo CmdOpts
 parserInfo = info (helper <*> cmdParser)
@@ -26,6 +27,7 @@ cmdParser = hsubparser (
     <> command "hash-object" (info hashObjectCmdParser (progDesc "Hash object to repository."))
     <> command "cat-file" (info catFileCmdParser (progDesc "Cat file."))
     <> command "write-tree" (info writeTreeCmdParser (progDesc "Write objects to repository."))
+    <> command "read-tree" (info readTreeCmdParser (progDesc "Read objects to repository."))
   )
 
 initCmdParser :: Parser CmdOpts
@@ -39,6 +41,9 @@ catFileCmdParser = CatFile <$> argument (str <&> MkCatFileOpt) (metavar "hash")
 
 writeTreeCmdParser :: Parser CmdOpts
 writeTreeCmdParser = WriteTree <$> argument (str <&> MkWriteTreeOpt) (metavar "dir")
+
+readTreeCmdParser :: Parser CmdOpts
+readTreeCmdParser = ReadTree <$> argument (str <&> MkReadTreeOpt) (metavar "hash")
 
 execParser :: IO CmdOpts
 execParser = Options.Applicative.execParser parserInfo
