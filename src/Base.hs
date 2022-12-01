@@ -1,26 +1,25 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-module Base(writeTree, readObj) where
+module Base 
+    (writeTree
+    , readObj
+    ) where
 
-import Const ( repoDir, objectsDir )
-import System.IO (hPutStrLn, stderr)
-import System.Exit (exitFailure)
-import System.Directory (doesDirectoryExist, getDirectoryContents, createDirectoryIfMissing)
-import Control.Monad (when, forM)
-import System.FilePath ((</>))
-import qualified Data.ByteString as BS
+import           Const                 (objectsDir, repoDir)
+import           Control.Monad         (forM, unless, when)
+import           Data
+import qualified Data.ByteString       as BS
 import qualified Data.ByteString.Char8 as Char8
-import qualified Data.ByteString.UTF8 as Utf8
-import Data.List (sort, intercalate)
-import Data
-    ( ObjType(..),
-      hashObject,
-      getObjType,
-      getObject,
-      Obj(MkObj),
-      toObjType )
-import Data.Maybe (catMaybes, mapMaybe)
-import Data.Foldable (foldl')
+import qualified Data.ByteString.UTF8  as Utf8
+import           Data.Foldable         (foldl')
+import           Data.List             (intercalate, sort)
+import           Data.Maybe            (catMaybes, mapMaybe)
+import           System.Directory      (createDirectoryIfMissing,
+                                        doesDirectoryExist,
+                                        getDirectoryContents)
+import           System.Exit           (exitFailure)
+import           System.FilePath       ((</>))
+import           System.IO             (hPutStrLn, stderr)
 
 data TreeItem = MkTreeItem ObjType BS.ByteString BS.ByteString deriving(Eq, Ord)
 
@@ -44,7 +43,7 @@ writeTree :: FilePath -> IO BS.ByteString
 writeTree dir = do
     when (dir == repoDir) (hPutStrLn stderr "Cannot write repository!" >> exitFailure)
     exists <- doesDirectoryExist dir
-    when (not exists) (hPutStrLn stderr ("Directory " <> dir <> " not exists!") >> exitFailure)
+    unless exists (hPutStrLn stderr ("Directory " <> dir <> " not exists!") >> exitFailure)
     ds <- getDirectoryContents dir
     paths <- forM (filter (`notElem` [".","..",repoDir]) ds) $ \e -> do
         let path = dir </> e

@@ -1,7 +1,7 @@
 module Util(toHexHash) where
-import Data.ByteString (ByteString, unpack)
-import Crypto.Hash.SHA1 (hash)
-import Text.Printf (printf)
+import           Crypto.Hash.SHA1 (hash)
+import           Data.ByteString  (ByteString, unpack)
+import           Text.Printf      (printf)
 
 toHexHash :: ByteString -> String
 toHexHash = toHex . hash

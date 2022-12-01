@@ -3,11 +3,11 @@ module Opt(
     execParser
 ) where
 
+import           Cmd
+import           Data.Functor              ((<&>))
+import           Options.Applicative       hiding (execParser)
 import qualified Options.Applicative
-import Options.Applicative hiding (execParser)
-import Options.Applicative.Types (ReadM(ReadM))
-import Data.Functor ((<&>))
-import Cmd
+import           Options.Applicative.Types (ReadM (ReadM))
 
 data CmdOpts
   = Init
