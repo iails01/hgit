@@ -70,6 +70,8 @@ test-suite tests
                       tasty-hunit,
                       bytestring,
                       utf8-string,
+                      transformers,
+                      mtl
 
     hs-source-dirs:   tests
 

@@ -28,6 +28,7 @@ import qualified Data
 import qualified Data.ByteString       as BS
 import qualified Data.ByteString.UTF8  as Utf8
 import Prelude hiding (log)
+import Control.Monad.Trans.Maybe (MaybeT(runMaybeT))
 
 preCheck :: IO a -> IO a
 preCheck action = do

@@ -15,6 +15,8 @@ import           System.IO            (hPutStrLn, stderr)
 import           Text.Printf          (printf)
 import           Util
 import Control.Exception (try, SomeException (SomeException))
+import Control.Monad.Trans.Maybe (MaybeT)
+import Control.Monad.Trans.Class ( MonadTrans(lift) )
 
 data ObjType = Blob | Tree | Commit deriving(Eq, Ord, Show)
 
@@ -52,9 +54,9 @@ getObject hash = do
 setHEAD :: ByteString -> IO ()
 setHEAD = BS.writeFile headFile
 
-getHEAD :: IO (Maybe ByteString) 
+getHEAD :: MaybeT IO ByteString
 getHEAD = do
-    ei <- try (BS.readFile headFile) :: IO (Either SomeException ByteString)
+    ei <- lift $ try (BS.readFile headFile) :: MaybeT IO (Either SomeException ByteString)
     case ei of
-        Left e -> pure Nothing
-        Right v -> pure $ Just v
+        Left e -> lift mempty
+        Right v -> pure v
