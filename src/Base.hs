@@ -174,9 +174,9 @@ log = do
         printLog hash (ParsedBlob _) = mzero
         printLog hash (ParsedTree _) = mzero
         printLog hash (ParsedCommit headers msg) = do
-            lift $ (putStrLn . Utf8.toString) ("commit " <> hash <> "\n\t" <> msg)
+            lift $ (putStrLn . Utf8.toString) ("commit " <> hash <> "\n\n\t" <> msg <> "\n")
             printParent headers
-            
+
         printParent :: CommitHeaders -> MaybeT IO ()
         printParent MkCommitHeaders{tree = t, parent = Nothing} = mzero
         printParent MkCommitHeaders{tree = t, parent = Just p} = do
