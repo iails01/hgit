@@ -10,6 +10,8 @@ import Data.Ord
 import Util
 import Data
 
+import qualified Data.ByteString.UTF8  as Utf8
+import qualified Data.ByteString  as BS
 
 main :: IO ()
 main = defaultMain tests

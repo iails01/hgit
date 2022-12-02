@@ -16,7 +16,7 @@ import           Text.Printf          (printf)
 import           Util
 import Control.Exception (try, SomeException (SomeException))
 
-data ObjType = Blob | Tree | Commit deriving(Eq, Ord)
+data ObjType = Blob | Tree | Commit deriving(Eq, Ord, Show)
 
 data Obj = MkObj ObjType ByteString
 

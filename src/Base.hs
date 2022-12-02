@@ -32,16 +32,17 @@ data ParsedObj
     = ParsedBlob BS.ByteString
     | ParsedTree [TreeItem]
     | ParsedCommit [CommitHeader] BS.ByteString
+    deriving(Show)
 
-data TreeItem = MkTreeItem ObjType BS.ByteString BS.ByteString deriving(Eq, Ord)
-data CommitHeader = TreeHeader BS.ByteString | ParentHeader BS.ByteString
+data TreeItem = MkTreeItem ObjType BS.ByteString BS.ByteString deriving(Eq, Ord, Show)
+data CommitHeader = TreeHeader BS.ByteString | ParentHeader BS.ByteString deriving(Show)
 
 toParsedObj :: Obj -> ParsedObj
 toParsedObj (MkObj Blob bs) = ParsedBlob bs
 toParsedObj (MkObj Tree bs) = ParsedTree $ mapMaybe toTreeItem (Utf8.lines bs)
 toParsedObj (MkObj Commit bs) = ParsedCommit (mapMaybe toCommitHeader headerLines) (BS.concat msgLines)
     where
-        (headerLines, msgLines) = partition ( == "") (Utf8.lines bs)
+        (headerLines, msgLines) = break ( == "\n") (Utf8.lines bs)
 
 fromParsedObj :: ParsedObj -> Obj
 fromParsedObj (ParsedBlob bs) = MkObj Blob bs
@@ -162,7 +163,9 @@ log :: IO ()
 log = do
     hashM <- getHEAD
     maybeM hashM (\hash -> do
+        putStrLn (Utf8.toString hash)
         commM <- getCommit (Utf8.toString hash)
+        putStrLn $ show commM
         maybeM commM (\comm -> do 
                 let phashM = parentHash comm
                 maybeM phashM (\(phash, msg) -> (putStrLn . Utf8.toString) (phash <> "\n" <> msg))

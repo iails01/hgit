@@ -67,7 +67,9 @@ test-suite tests
     build-depends:    base ^>=4.14.3.0,
                       hgit-lib,
                       tasty,
-                      tasty-hunit
+                      tasty-hunit,
+                      bytestring,
+                      utf8-string,
 
     hs-source-dirs:   tests
 
