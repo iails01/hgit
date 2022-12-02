@@ -24,10 +24,10 @@ extra-source-files: CHANGELOG.md
 library hgit-lib
     exposed-modules:  Opt,
                       Cmd,
-                      Util
+                      Util,
+                      Data
                       
     other-modules:    Const,
-                      Data,
                       Base
 
     build-depends:    base ^>=4.14.3.0,

@@ -1,6 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-module Data(hashObject, getObject, setHEAD, ObjType(..), getObjType, toObjType, Obj(..)) where
+module Data(hashObject, getObject, setHEAD, getHEAD, ObjType(..), getObjType, toObjType, Obj(..)) where
 import           Const
 import           Control.Monad        (forM, when)
 import           Crypto.Hash.SHA1     (hash, hashlazy)
@@ -14,13 +14,14 @@ import           System.FilePath      ((</>))
 import           System.IO            (hPutStrLn, stderr)
 import           Text.Printf          (printf)
 import           Util
+import Control.Exception (try, SomeException (SomeException))
 
 data ObjType = Blob | Tree | Commit deriving(Eq, Ord)
 
 data Obj = MkObj ObjType ByteString
 
-hashObject :: ObjType -> ByteString -> IO ByteString
-hashObject objType fileContent = do
+hashObject :: Obj -> IO ByteString
+hashObject (MkObj objType fileContent) = do
     let content = getObjType objType <> "\0" <> fileContent
     let hash = toHexHash content
     createDirectoryIfMissing False objectsDir
@@ -50,3 +51,10 @@ getObject hash = do
 
 setHEAD :: ByteString -> IO ()
 setHEAD = BS.writeFile headFile
+
+getHEAD :: IO (Maybe ByteString) 
+getHEAD = do
+    ei <- try (BS.readFile headFile) :: IO (Either SomeException ByteString)
+    case ei of
+        Left e -> pure Nothing
+        Right v -> pure $ Just v

@@ -52,7 +52,7 @@ newtype HashObjectOpt = MkHashObjectOpt String
 hashObject :: HashObjectOpt -> IO ()
 hashObject (MkHashObjectOpt file) = preCheck $ do
     content <- BS.readFile file
-    hash <- Data.hashObject Data.Blob content
+    hash <- Data.hashObject (Data.MkObj Data.Blob content)
     Char8.putStrLn ("saved: " <> hash)
 
 data WriteTreeOpt = MkWriteTreeOpt FilePath
