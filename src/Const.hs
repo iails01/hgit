@@ -9,3 +9,6 @@ objectsDir = repoDir </> "objects"
 
 headFile :: String
 headFile = repoDir </> "HEAD"
+
+spaceChar :: (Num a) => a
+spaceChar = 32

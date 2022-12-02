@@ -16,6 +16,7 @@ data CmdOpts
   | WriteTree !WriteTreeOpt
   | ReadTree !ReadTreeOpt
   | Commit !CommitOpt
+  | Log
 
 parserInfo :: ParserInfo CmdOpts
 parserInfo = info (helper <*> cmdParser)
@@ -30,6 +31,7 @@ cmdParser = hsubparser (
     <> command "write-tree" (info writeTreeCmdParser (progDesc "Write objects to repository."))
     <> command "read-tree" (info readTreeCmdParser (progDesc "Read objects to repository."))
     <> command "commit" (info commitCmdParser (progDesc "Commit changes to repository."))
+    <> command "log" (info logCmdParser (progDesc "Log commits."))
   )
 
 initCmdParser :: Parser CmdOpts
@@ -46,6 +48,9 @@ writeTreeCmdParser = WriteTree <$> argument (str <&> MkWriteTreeOpt) (metavar "d
 
 readTreeCmdParser :: Parser CmdOpts
 readTreeCmdParser = ReadTree <$> argument (str <&> MkReadTreeOpt) (metavar "hash")
+
+logCmdParser :: Parser CmdOpts
+logCmdParser = pure Log
 
 commitCmdParser :: Parser CmdOpts
 commitCmdParser = Commit <$> commitOptParser

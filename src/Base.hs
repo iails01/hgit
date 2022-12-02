@@ -1,19 +1,20 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE LambdaCase #-}
 
 module Base
     (writeTree
     , readObj
     , commit
+    , log
     ) where
 
-import           Const                 (objectsDir, repoDir)
+import           Const
 import Control.Monad ( forM, unless, when, forM_ )
 import           Data
 import qualified Data.ByteString       as BS
-import qualified Data.ByteString.Char8 as Char8
 import qualified Data.ByteString.UTF8  as Utf8
 import           Data.Foldable         (foldl')
-import           Data.List             (intercalate, sort)
+import           Data.List             (intercalate, sort, partition)
 import           Data.Maybe            (catMaybes, mapMaybe)
 import           System.Directory      (createDirectoryIfMissing,
                                         doesDirectoryExist,
@@ -21,9 +22,14 @@ import           System.Directory      (createDirectoryIfMissing,
 import           System.Exit           (exitFailure)
 import           System.FilePath       ((</>))
 import           System.IO             (hPutStrLn, stderr)
+import qualified Data.ByteString.Char8 as Char8
+import Control.Monad.IO.Class (MonadIO(liftIO))
+import Control.Monad.Trans.Maybe (MaybeT (MaybeT))
+import Util
+import Prelude hiding (log)
 
 data ParsedObj
-    = ParsedBlob BS.ByteString 
+    = ParsedBlob BS.ByteString
     | ParsedTree [TreeItem]
     | ParsedCommit [CommitHeader] BS.ByteString
 
@@ -32,13 +38,15 @@ data CommitHeader = TreeHeader BS.ByteString | ParentHeader BS.ByteString
 
 toParsedObj :: Obj -> ParsedObj
 toParsedObj (MkObj Blob bs) = ParsedBlob bs
-toParsedObj (MkObj Tree bs) = ParsedTree $ mapMaybe toTreeItem (Char8.lines bs)
-toParsedObj (MkObj Commit bs) = _
+toParsedObj (MkObj Tree bs) = ParsedTree $ mapMaybe toTreeItem (Utf8.lines bs)
+toParsedObj (MkObj Commit bs) = ParsedCommit (mapMaybe toCommitHeader headerLines) (BS.concat msgLines)
+    where
+        (headerLines, msgLines) = partition ( == "") (Utf8.lines bs)
 
 fromParsedObj :: ParsedObj -> Obj
 fromParsedObj (ParsedBlob bs) = MkObj Blob bs
 fromParsedObj (ParsedTree items) = MkObj Tree $ (BS.intercalate "\n" . map fromTreeItem) items
-fromParsedObj (ParsedCommit headers msg) = MkObj Commit $ _
+fromParsedObj (ParsedCommit headers msg) = MkObj Commit (Char8.unlines (map fromCommitHeader headers) <> "\n" <> msg)
 
 fromTreeItem :: TreeItem -> BS.ByteString
 fromTreeItem (MkTreeItem objType hash name) = getObjType objType <> " " <> hash <> " " <> name
@@ -46,8 +54,20 @@ fromTreeItem (MkTreeItem objType hash name) = getObjType objType <> " " <> hash 
 toTreeItem :: BS.ByteString -> Maybe TreeItem
 toTreeItem = parseItems . splitItems
     where
-        splitItems = BS.split 32
+        splitItems = BS.split spaceChar
         parseItems (objType:hash:name:xs) = Just $ MkTreeItem (toObjType objType) hash name
+        parseItems _ = Nothing
+
+fromCommitHeader :: CommitHeader -> BS.ByteString
+fromCommitHeader (TreeHeader v) = "tree " <> v
+fromCommitHeader (ParentHeader v) = "parent " <> v
+
+toCommitHeader :: BS.ByteString -> Maybe CommitHeader
+toCommitHeader = parseItems . splitItems
+    where
+        splitItems = BS.split spaceChar
+        parseItems ("tree ":value:xs) = Just $ TreeHeader value
+        parseItems ("parent ":value:xs) = Just $ ParentHeader value
         parseItems _ = Nothing
 
 writeTree :: FilePath -> IO BS.ByteString
@@ -116,14 +136,35 @@ commit :: String -> IO ()
 commit msg = do
     hash <- writeTree "."
     headM <- getHEAD
-    let header = [(getObjType Tree, hash)] <> maybe mempty (\head -> [("parent", head)]) headM
-    let commitContent = buildCommit header (Utf8.fromString msg)
-    commitHash <- hashObject (MkObj Commit commitContent)
+    let headers = [TreeHeader hash] <> maybe mempty (\head -> [ParentHeader head]) headM
+    let comm = ParsedCommit headers (Utf8.fromString msg)
+    commitHash <- hashObject $ fromParsedObj comm
     setHEAD commitHash
-    where
-        buildCommit :: [(BS.ByteString, BS.ByteString)] -> BS.ByteString -> BS.ByteString
-        buildCommit kvs msg = header <> "\n" <> msg
-            where
-                header = foldl' (\acc (k, v) -> acc <> k <> " " <> v <> "\n") "" kvs
 
--- getCommit :: String -> IO 
+getCommit :: String -> IO (Maybe ParsedObj)
+getCommit hash = do
+    objM <- getObject hash
+    pure $ toParsedObj <$> objM
+
+maybeM :: Maybe a -> (a -> IO ()) -> IO ()
+maybeM (Just a) f = f a
+maybeM Nothing _ = pure ()
+
+parentHash :: ParsedObj -> Maybe (BS.ByteString, BS.ByteString)
+parentHash (ParsedBlob _) = Nothing 
+parentHash (ParsedTree _) = Nothing
+parentHash (ParsedCommit headers msg) = safeHead (mapMaybe mapper headers) >>= \parent -> pure (parent, msg)
+    where
+        mapper (ParentHeader parent) = Just parent
+        mapper _ = Nothing 
+
+log :: IO ()
+log = do
+    hashM <- getHEAD
+    maybeM hashM (\hash -> do
+        commM <- getCommit (Utf8.toString hash)
+        maybeM commM (\comm -> do 
+                let phashM = parentHash comm
+                maybeM phashM (\(phash, msg) -> (putStrLn . Utf8.toString) (phash <> "\n" <> msg))
+            )
+        )

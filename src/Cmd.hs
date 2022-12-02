@@ -12,6 +12,7 @@ module Cmd
   , writeTree
   , readTree
   , commit
+  , log
   ) where
 
 import qualified Data.ByteString.Char8 as Char8
@@ -26,6 +27,7 @@ import           Const
 import qualified Data
 import qualified Data.ByteString       as BS
 import qualified Data.ByteString.UTF8  as Utf8
+import Prelude hiding (log)
 
 preCheck :: IO a -> IO a
 preCheck action = do
@@ -73,3 +75,7 @@ data CommitOpt = MkCommitOpt String
 commit :: CommitOpt -> IO ()
 commit (MkCommitOpt msg) = preCheck $ do
     Base.commit msg
+
+log :: IO ()
+log = preCheck $ do
+    Base.log 
