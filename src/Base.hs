@@ -1,12 +1,13 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-module Base 
+module Base
     (writeTree
     , readObj
+    , commit
     ) where
 
 import           Const                 (objectsDir, repoDir)
-import           Control.Monad         (forM, unless, when)
+import Control.Monad ( forM, unless, when, forM_ )
 import           Data
 import qualified Data.ByteString       as BS
 import qualified Data.ByteString.Char8 as Char8
@@ -16,7 +17,7 @@ import           Data.List             (intercalate, sort)
 import           Data.Maybe            (catMaybes, mapMaybe)
 import           System.Directory      (createDirectoryIfMissing,
                                         doesDirectoryExist,
-                                        getDirectoryContents)
+                                        getDirectoryContents, removePathForcibly)
 import           System.Exit           (exitFailure)
 import           System.FilePath       ((</>))
 import           System.IO             (hPutStrLn, stderr)
@@ -45,7 +46,7 @@ writeTree dir = do
     exists <- doesDirectoryExist dir
     unless exists (hPutStrLn stderr ("Directory " <> dir <> " not exists!") >> exitFailure)
     ds <- getDirectoryContents dir
-    paths <- forM (filter (`notElem` [".","..",repoDir]) ds) $ \e -> do
+    paths <- forM (filter validDir ds) $ \e -> do
         let path = dir </> e
         isDir <- doesDirectoryExist path
         if isDir then do
@@ -60,15 +61,17 @@ writeTree dir = do
 listFiles :: FilePath -> IO [FilePath]
 listFiles root = do
   ds <- getDirectoryContents root
-  paths <- forM (filter (`notElem` [".","..",repoDir]) ds) $ \e -> do
+  paths <- forM (filter validDir ds) $ \e -> do
     let path = root </> e
     isDir <- doesDirectoryExist path
     if isDir then listFiles path
     else return [path]
   return (concat paths)
 
+validDir = (`notElem` [".","..",repoDir])
+
 readObj :: String -> IO ()
-readObj = readObjWithBase "."
+readObj hash = emptyCurrentDir >> readObjWithBase "." hash
     where
         readObjWithBase :: FilePath -> String -> IO ()
         readObjWithBase root hash = do
@@ -76,6 +79,7 @@ readObj = readObjWithBase "."
             maybe (hPutStrLn stderr ("Object " <> hash <> " not exists!")) (readObj' root) obj
 
         readObj' :: FilePath -> Obj -> IO ()
+        readObj' path (MkObj Commit content) = mempty
         readObj' path (MkObj Blob content) = BS.writeFile path content
 
         readObj' path (MkObj Tree lines) = do
@@ -84,7 +88,29 @@ readObj = readObjWithBase "."
             let actions = map (readItem path) items
             foldl' (>>) mempty actions
         readItem :: FilePath -> TreeItem -> IO ()
+        readItem root (MkTreeItem Commit hash name) = mempty
         readItem root (MkTreeItem Tree hash name) = readObjWithBase (root </> Utf8.toString name) (Utf8.toString hash)
         readItem root (MkTreeItem Blob hash name) = do
             obj <- getObject (Utf8.toString hash)
             maybe (hPutStrLn stderr ("Object " <> Utf8.toString hash <> " not exists!")) (readObj' (root </> Utf8.toString name)) obj
+
+emptyCurrentDir :: IO ()
+emptyCurrentDir = emptyDir "."
+    where
+        emptyDir :: FilePath -> IO ()
+        emptyDir root = do
+            ds <- getDirectoryContents root
+            forM_ (filter validDir ds) $ \file -> do
+                removePathForcibly file
+
+commit :: String -> IO ()
+commit msg = do
+    hash <- writeTree "."
+    let commitContent = buildCommit [(getObjType Tree, hash)] (Utf8.fromString msg)
+    commitHash <- hashObject Commit commitContent
+    setHEAD commitHash
+    where
+        buildCommit :: [(BS.ByteString, BS.ByteString)] -> BS.ByteString -> BS.ByteString
+        buildCommit kvs msg = header <> "\n" <> msg
+            where
+                header = foldl' (\acc (k, v) -> acc <> k <> " " <> v <> "\n") "" kvs

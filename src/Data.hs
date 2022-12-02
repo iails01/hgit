@@ -1,6 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-module Data(hashObject, getObject, ObjType(..), getObjType, toObjType, Obj(..)) where
+module Data(hashObject, getObject, setHEAD, ObjType(..), getObjType, toObjType, Obj(..)) where
 import           Const
 import           Control.Monad        (forM, when)
 import           Crypto.Hash.SHA1     (hash, hashlazy)
@@ -15,7 +15,7 @@ import           System.IO            (hPutStrLn, stderr)
 import           Text.Printf          (printf)
 import           Util
 
-data ObjType = Blob | Tree deriving(Eq, Ord)
+data ObjType = Blob | Tree | Commit deriving(Eq, Ord)
 
 data Obj = MkObj ObjType ByteString
 
@@ -30,10 +30,12 @@ hashObject objType fileContent = do
 getObjType :: ObjType -> ByteString
 getObjType Blob = "blob"
 getObjType Tree = "tree"
+getObjType Commit = "commit"
 
 toObjType :: ByteString -> ObjType
 toObjType "blob" = Blob
 toObjType "tree" = Tree
+toObjType "commit" = Commit
 toObjType _      = Blob
 
 getObject :: String -> IO (Maybe Obj)
@@ -45,3 +47,6 @@ getObject hash = do
         let (fileType, content) = breakSubstring "\0" bs
         pure . Just $ MkObj (toObjType fileType) (BS.drop 1 content)
     else pure Nothing
+
+setHEAD :: ByteString -> IO ()
+setHEAD = BS.writeFile headFile

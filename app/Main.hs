@@ -14,3 +14,4 @@ handleCmd (HashObject opt) = hashObject opt
 handleCmd (CatFile opt) = catFile opt
 handleCmd (WriteTree opt) = writeTree opt
 handleCmd (ReadTree opt) = readTree opt
+handleCmd (Commit opt) = commit opt

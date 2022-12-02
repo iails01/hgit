@@ -5,14 +5,15 @@ module Cmd
   , HashObjectOpt(..)
   , WriteTreeOpt(..)
   , ReadTreeOpt(..)
+  , CommitOpt(..)
   , initRepo
   , catFile
   , hashObject
   , writeTree
   , readTree
+  , commit
   ) where
 
-import           Data                  (getObject)
 import qualified Data.ByteString.Char8 as Char8
 
 import           System.Directory      (createDirectoryIfMissing,
@@ -43,7 +44,7 @@ data CatFileOpt = MkCatFileOpt String
 
 catFile :: CatFileOpt -> IO ()
 catFile (MkCatFileOpt hash) = preCheck $ do
-    obj <- getObject hash
+    obj <- Data.getObject hash
     maybe mempty (\(Data.MkObj _ content) -> Char8.putStrLn content) obj
 
 newtype HashObjectOpt = MkHashObjectOpt String
@@ -66,3 +67,9 @@ data ReadTreeOpt = MkReadTreeOpt String
 readTree :: ReadTreeOpt -> IO ()
 readTree (MkReadTreeOpt hash) = preCheck $ do
     Base.readObj hash
+
+data CommitOpt = MkCommitOpt String
+
+commit :: CommitOpt -> IO ()
+commit (MkCommitOpt msg) = preCheck $ do
+    Base.commit msg
