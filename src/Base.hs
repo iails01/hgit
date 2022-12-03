@@ -7,6 +7,8 @@ module Base
     , commit
     , log
     , checkout
+    , tag
+    , resolveOid
     ) where
 
 import           Const
@@ -19,7 +21,7 @@ import           Data.List             (intercalate, sort, partition)
 import           Data.Maybe            (catMaybes, mapMaybe)
 import           System.Directory      (createDirectoryIfMissing,
                                         doesDirectoryExist,
-                                        getDirectoryContents, removePathForcibly)
+                                        getDirectoryContents, removePathForcibly, doesFileExist)
 import           System.Exit           (exitFailure)
 import           System.FilePath       ((</>))
 import           System.IO             (hPutStrLn, stderr)
@@ -30,6 +32,7 @@ import Control.Monad.Trans.Maybe (MaybeT (MaybeT), runMaybeT)
 import Util
 import Prelude hiding (log)
 import Control.Monad (MonadPlus(mzero))
+import Control.Applicative ((<|>))
 
 data ParsedObj
     = ParsedBlob BS.ByteString
@@ -112,7 +115,11 @@ listFiles root = do
 validDir = (`notElem` [".","..",repoDir])
 
 readObj :: String -> IO ()
-readObj hash = emptyCurrentDir >> readObjWithBase "." hash
+readObj oid = do
+    hashM <- runMaybeT $ resolveOid oid
+    case hashM of
+        Just hash -> emptyCurrentDir >> readObjWithBase "." (Utf8.toString hash)
+        Nothing -> pure ()
     where
         readObjWithBase :: FilePath -> String -> IO ()
         readObjWithBase root hash = do
@@ -182,11 +189,12 @@ log hash = do
             printLog pStr comm
 
 checkout :: String -> IO ()
-checkout hash = do
+checkout oid = do
     runMaybeT $ do
-        comm <- getCommit hash
+        hash <- resolveOid oid
+        comm <- getCommit (Utf8.toString hash)
         lift $ readCommit comm
-        lift $ setHEAD (Utf8.fromString hash)
+        lift $ setHEAD hash
     pure ()
     where
         readCommit :: ParsedObj -> IO ()
@@ -194,3 +202,17 @@ checkout hash = do
         readCommit (ParsedTree _) = mempty
         readCommit (ParsedCommit MkCommitHeaders{tree=t} _) = do
             readObj . Utf8.toString $ t
+
+resolveOid :: String -> MaybeT IO BS.ByteString
+resolveOid "HEAD" = getHEAD
+resolveOid oid = getRef (mkTagsRef oid) <|> objHash oid <|> (lift (hPutStrLn stderr ("Cannot resolve this oid: " <> oid)) >> mzero)
+    where
+        objHash :: String -> MaybeT IO BS.ByteString
+        objHash hash = do
+            exists <- lift $ doesFileExist (objectsDir </> hash)
+            if exists then pure (Utf8.fromString hash)
+            else mzero
+
+tag :: String -> String -> IO ()
+tag tagName hash = do
+    setRef (mkTagsRef tagName) (Utf8.fromString hash)

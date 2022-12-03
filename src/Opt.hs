@@ -18,6 +18,7 @@ data CmdOpts
   | Commit !CommitOpt
   | Log !LogOpt
   | Checkout !CheckoutOpt
+  | Tag !TagOpt
 
 parserInfo :: ParserInfo CmdOpts
 parserInfo = info (helper <*> cmdParser)
@@ -34,6 +35,7 @@ cmdParser = hsubparser (
     <> command "commit" (info commitCmdParser (progDesc "Commit changes to repository."))
     <> command "log" (info logCmdParser (progDesc "Log commits."))
     <> command "checkout" (info checkoutCmdParser (progDesc "Checkout commit."))
+    <> command "tag" (info tagCmdParser (progDesc "Tag hash."))
   )
 
 initCmdParser :: Parser CmdOpts
@@ -56,6 +58,9 @@ logCmdParser = Log <$> (pure MkEmptyLogOpt <|> argument (str <&> MkLogOpt) (meta
 
 checkoutCmdParser :: Parser CmdOpts
 checkoutCmdParser = Checkout <$> argument (str <&> MkCheckoutOpt) (metavar "hash")
+
+tagCmdParser :: Parser CmdOpts
+tagCmdParser = Tag . MkTagOpt <$> some (argument str (metavar "tagName [hash]"))
 
 commitCmdParser :: Parser CmdOpts
 commitCmdParser = Commit <$> commitOptParser

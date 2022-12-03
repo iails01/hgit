@@ -8,6 +8,7 @@ module Cmd
   , CommitOpt(..)
   , LogOpt(..)
   , CheckoutOpt(..)
+  , TagOpt(..)
   , initRepo
   , catFile
   , hashObject
@@ -16,6 +17,7 @@ module Cmd
   , commit
   , log
   , checkout
+  , tag
   ) where
 
 import qualified Data.ByteString.Char8 as Char8
@@ -32,6 +34,7 @@ import qualified Data.ByteString       as BS
 import qualified Data.ByteString.UTF8  as Utf8
 import Prelude hiding (log)
 import Control.Monad.Trans.Maybe (MaybeT(runMaybeT))
+import Base (resolveOid)
 
 preCheck :: IO a -> IO a
 preCheck action = do
@@ -71,8 +74,8 @@ writeTree (MkWriteTreeOpt file) = preCheck $ do
 data ReadTreeOpt = MkReadTreeOpt String
 
 readTree :: ReadTreeOpt -> IO ()
-readTree (MkReadTreeOpt hash) = preCheck $ do
-    Base.readObj hash
+readTree (MkReadTreeOpt oid) = preCheck $ do
+    Base.readObj oid
 
 data CommitOpt = MkCommitOpt String
 
@@ -94,5 +97,21 @@ log (MkLogOpt hash) = preCheck $ do
 data CheckoutOpt = MkCheckoutOpt String
 
 checkout :: CheckoutOpt -> IO ()
-checkout (MkCheckoutOpt hash) = preCheck $ do
-    Base.checkout hash
+checkout (MkCheckoutOpt oid) = preCheck $ do
+    Base.checkout oid
+
+data TagOpt = MkTagOpt [String]
+
+tag :: TagOpt -> IO ()
+tag (MkTagOpt []) = preCheck $ do
+    hPutStrLn stderr "Tag name cannot be empty!"
+
+tag (MkTagOpt [tagName]) = preCheck $ do
+    mb <- runMaybeT Data.getHEAD
+    maybe mempty tag' mb
+    where
+        tag' hash = Base.tag tagName (Utf8.toString hash)
+
+tag (MkTagOpt (tagName:oid:xs)) = preCheck $ do
+    hashM <- runMaybeT $ resolveOid oid
+    maybe (hPutStrLn stderr (oid <> " not exists!") >> exitFailure) (Base.tag tagName . Utf8.toString) hashM

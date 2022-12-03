@@ -1,8 +1,8 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-module Data(hashObject, getObject, setHEAD, getHEAD, ObjType(..), getObjType, toObjType, Obj(..)) where
+module Data(hashObject, getObject, setHEAD, getHEAD, setRef, getRef, ObjType(..), getObjType, toObjType, Obj(..), Ref(..), headRef, mkTagsRef) where
 import           Const
-import           Control.Monad        (forM, when)
+import Control.Monad ( forM, when, MonadPlus(mzero) )
 import           Crypto.Hash.SHA1     (hash, hashlazy)
 import           Data.ByteString      as BS
 import qualified Data.ByteString.UTF8 as Utf8
@@ -15,12 +15,19 @@ import           System.IO            (hPutStrLn, stderr)
 import           Text.Printf          (printf)
 import           Util
 import Control.Exception (try, SomeException (SomeException))
-import Control.Monad.Trans.Maybe (MaybeT)
+import Control.Monad.Trans.Maybe (MaybeT (..))
 import Control.Monad.Trans.Class ( MonadTrans(lift) )
+import Control.Applicative ((<|>))
+import System.FilePath.Posix (takeDirectory)
 
 data ObjType = Blob | Tree | Commit deriving(Eq, Ord, Show)
 
 data Obj = MkObj ObjType ByteString
+
+newtype Ref = MkRef FilePath
+
+headRef = MkRef "HEAD"
+mkTagsRef tagName = MkRef ("refs" </> "tags" </> tagName)
 
 hashObject :: Obj -> IO ByteString
 hashObject (MkObj objType fileContent) = do
@@ -51,12 +58,22 @@ getObject hash = do
         pure . Just $ MkObj (toObjType fileType) (BS.drop 1 content)
     else pure Nothing
 
+getRef :: Ref -> MaybeT IO ByteString
+getRef (MkRef path) = do
+    ei <- lift $ try (BS.readFile (objectsDir </> path)) :: MaybeT IO (Either SomeException ByteString)
+    case ei of
+        Left e -> mzero
+        Right v -> pure v
+
+setRef :: Ref -> ByteString -> IO ()
+setRef (MkRef path) hash = do
+    let file = objectsDir </> path
+    let dir = takeDirectory file
+    createDirectoryIfMissing True dir
+    BS.writeFile file hash
+
 setHEAD :: ByteString -> IO ()
-setHEAD = BS.writeFile headFile
+setHEAD = setRef headRef
 
 getHEAD :: MaybeT IO ByteString
-getHEAD = do
-    ei <- lift $ try (BS.readFile headFile) :: MaybeT IO (Either SomeException ByteString)
-    case ei of
-        Left e -> lift mempty
-        Right v -> pure v
+getHEAD = getRef headRef
