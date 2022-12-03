@@ -6,6 +6,8 @@ module Cmd
   , WriteTreeOpt(..)
   , ReadTreeOpt(..)
   , CommitOpt(..)
+  , LogOpt(..)
+  , CheckoutOpt(..)
   , initRepo
   , catFile
   , hashObject
@@ -13,6 +15,7 @@ module Cmd
   , readTree
   , commit
   , log
+  , checkout
   ) where
 
 import qualified Data.ByteString.Char8 as Char8
@@ -77,6 +80,19 @@ commit :: CommitOpt -> IO ()
 commit (MkCommitOpt msg) = preCheck $ do
     Base.commit msg
 
-log :: IO ()
-log = preCheck $ do
-    Base.log 
+data LogOpt
+    = MkEmptyLogOpt
+    | MkLogOpt String
+
+log :: LogOpt -> IO ()
+log MkEmptyLogOpt = preCheck $ do
+    mb <- runMaybeT Data.getHEAD
+    maybe mempty (Base.log . Utf8.toString) mb
+log (MkLogOpt hash) = preCheck $ do
+    Base.log hash
+
+data CheckoutOpt = MkCheckoutOpt String
+
+checkout :: CheckoutOpt -> IO ()
+checkout (MkCheckoutOpt hash) = preCheck $ do
+    Base.checkout hash

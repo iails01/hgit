@@ -16,4 +16,5 @@ handleCmd (CatFile opt) = catFile opt
 handleCmd (WriteTree opt) = writeTree opt
 handleCmd (ReadTree opt) = readTree opt
 handleCmd (Commit opt) = commit opt
-handleCmd Log = log
+handleCmd (Log opt) = log opt
+handleCmd (Checkout opt) = checkout opt

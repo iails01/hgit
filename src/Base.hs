@@ -6,6 +6,7 @@ module Base
     , readObj
     , commit
     , log
+    , checkout
     ) where
 
 import           Const
@@ -150,35 +151,46 @@ commit msg = do
     let comm = ParsedCommit (toHeaders headers) (Utf8.fromString msg)
     commitHash <- hashObject $ fromParsedObj comm
     setHEAD commitHash
+    putStrLn . Utf8.toString $ commitHash
 
 getCommit :: String -> MaybeT IO ParsedObj
 getCommit hash = do
     objM <- lift $ getObject hash
     let parsedM = toParsedObj <$> objM
-    maybe mzero pure parsedM
+    MaybeT . pure $ parsedM
 
-maybeM :: Maybe a -> (a -> IO ()) -> IO ()
-maybeM (Just a) f = f a
-maybeM Nothing _ = pure ()
-
-log :: IO ()
-log = do
+log :: String -> IO ()
+log hash = do
     runMaybeT $ do
-        hash <- getHEAD
-        comm <- getCommit (Utf8.toString hash)
+        comm <- getCommit hash
         printLog hash comm
     pure ()
 
     where
-        printLog :: BS.ByteString -> ParsedObj -> MaybeT IO ()
+        printLog :: String -> ParsedObj -> MaybeT IO ()
         printLog hash (ParsedBlob _) = mzero
         printLog hash (ParsedTree _) = mzero
         printLog hash (ParsedCommit headers msg) = do
-            lift $ (putStrLn . Utf8.toString) ("commit " <> hash <> "\n\n\t" <> msg <> "\n")
+            lift $ putStrLn ("commit " <> hash <> "\n\n\t" <> Utf8.toString msg <> "\n")
             printParent headers
 
         printParent :: CommitHeaders -> MaybeT IO ()
         printParent MkCommitHeaders{tree = t, parent = Nothing} = mzero
         printParent MkCommitHeaders{tree = t, parent = Just p} = do
-            comm <- getCommit (Utf8.toString p)
-            printLog p comm
+            let pStr = Utf8.toString p
+            comm <- getCommit pStr
+            printLog pStr comm
+
+checkout :: String -> IO ()
+checkout hash = do
+    runMaybeT $ do
+        comm <- getCommit hash
+        lift $ readCommit comm
+        lift $ setHEAD (Utf8.fromString hash)
+    pure ()
+    where
+        readCommit :: ParsedObj -> IO ()
+        readCommit (ParsedBlob _) = mempty
+        readCommit (ParsedTree _) = mempty
+        readCommit (ParsedCommit MkCommitHeaders{tree=t} _) = do
+            readObj . Utf8.toString $ t
