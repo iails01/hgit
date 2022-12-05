@@ -89,10 +89,9 @@ data LogOpt
 
 log :: LogOpt -> IO ()
 log MkEmptyLogOpt = preCheck $ do
-    mb <- runMaybeT Data.getHEAD
-    maybe mempty (Base.log . Utf8.toString) mb
-log (MkLogOpt hash) = preCheck $ do
-    Base.log hash
+    Base.log "HEAD"
+log (MkLogOpt oid) = preCheck $ do
+    Base.log oid
 
 data CheckoutOpt = MkCheckoutOpt String
 
