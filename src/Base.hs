@@ -161,25 +161,26 @@ commit msg = do
     putStrLn . Utf8.toString $ commitHash
 
 getCommit :: String -> MaybeT IO ParsedObj
-getCommit oid = do
-    hash <- resolveOid oid
-    objM <- lift $ getObject (Utf8.toString hash)
+getCommit hash = do
+    objM <- lift $ getObject hash
     let parsedM = toParsedObj <$> objM
     MaybeT . pure $ parsedM
 
 log :: String -> IO ()
 log oid = do
     runMaybeT $ do
-        comm <- getCommit oid
-        printLog oid comm
+        hash <- resolveOid oid
+        let hashStr = Utf8.toString hash
+        comm <- getCommit hashStr
+        printLog hashStr comm
     pure ()
 
     where
         printLog :: String -> ParsedObj -> MaybeT IO ()
-        printLog oid (ParsedBlob _) = mzero
-        printLog oid (ParsedTree _) = mzero
-        printLog oid (ParsedCommit headers msg) = do
-            lift $ putStrLn ("commit " <> oid <> "\n\n\t" <> Utf8.toString msg <> "\n")
+        printLog hash (ParsedBlob _) = mzero
+        printLog hash (ParsedTree _) = mzero
+        printLog hash (ParsedCommit headers msg) = do
+            lift $ putStrLn ("commit " <> hash <> "\n\n\t" <> Utf8.toString msg <> "\n")
             printParent headers
 
         printParent :: CommitHeaders -> MaybeT IO ()
