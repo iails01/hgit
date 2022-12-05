@@ -13,6 +13,8 @@ import Control.Monad.Trans.Class ( MonadTrans(lift) )
 
 import qualified Data.ByteString.UTF8  as Utf8
 import qualified Data.ByteString  as BS
+import Control.Monad.Trans.Maybe (MaybeT(runMaybeT))
+import Control.Monad (MonadPlus(mzero), void)
 
 main :: IO ()
 main = defaultMain tests
@@ -24,9 +26,9 @@ unitTests :: TestTree
 unitTests = testGroup "Unit tests"
   [ testCase "toHexHash" $
       toHexHash "this is cool" `compare` "60f51187e76a9de0ff3df31f051bde04da2da891" @?= EQ
-      , testCase "toHexHash" $ do
-        hm <- lift getHEAD
-        maybe mempty (error "getHEAD should return Nothing") hm
+      , testCase "toHexHash" $ void $ runMaybeT $ do
+        hm <- getHEAD
+        error "getHEAD should return Nothing"
       , testCase "toHexHash" $ do
         bs <- BS.readFile "/home/iails/Projects/haskell/test/.hgit/objects/40bb77b91d66657478131434527b19cbb1e4b829"
         print $ break ( == "") (Utf8.lines bs)

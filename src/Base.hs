@@ -204,8 +204,7 @@ checkout oid = do
             readObj . Utf8.toString $ t
 
 resolveOid :: String -> MaybeT IO BS.ByteString
-resolveOid "HEAD" = getHEAD
-resolveOid oid = getRef (mkTagsRef oid) <|> objHash oid <|> (lift (hPutStrLn stderr ("Cannot resolve this oid: " <> oid)) >> mzero)
+resolveOid oid = getRef (MkRef oid) <|> objHash oid <|> (lift (hPutStrLn stderr ("Cannot resolve this oid: " <> oid)) >> mzero)
     where
         objHash :: String -> MaybeT IO BS.ByteString
         objHash hash = do

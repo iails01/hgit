@@ -59,15 +59,26 @@ getObject hash = do
     else pure Nothing
 
 getRef :: Ref -> MaybeT IO ByteString
-getRef (MkRef path) = do
-    ei <- lift $ try (BS.readFile (objectsDir </> path)) :: MaybeT IO (Either SomeException ByteString)
-    case ei of
-        Left e -> mzero
-        Right v -> pure v
+getRef (MkRef path)
+     =   getRef' (repoDir </> "refs" </> "tags" </> path) 
+     <|> getRef' (repoDir </> "refs" </> "heads" </> path) 
+     <|> getRef' (repoDir </> "refs" </> path) 
+     <|> getRef' (repoDir </> path) 
+
+    where
+        getRef' :: FilePath -> MaybeT IO ByteString
+        getRef' path = do
+            exists <- lift $ doesFileExist path
+            if exists then do
+                ei <- lift $ try (BS.readFile path) :: MaybeT IO (Either SomeException ByteString)
+                case ei of
+                    Left e -> mzero
+                    Right v -> pure v
+            else mzero
 
 setRef :: Ref -> ByteString -> IO ()
 setRef (MkRef path) hash = do
-    let file = objectsDir </> path
+    let file = repoDir </> path
     let dir = takeDirectory file
     createDirectoryIfMissing True dir
     BS.writeFile file hash
