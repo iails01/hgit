@@ -214,5 +214,7 @@ resolveOid oid = getRef (MkRef oid) <|> objHash oid <|> (lift (hPutStrLn stderr 
             else mzero
 
 tag :: String -> String -> IO ()
-tag tagName hash = do
-    setRef (mkTagsRef tagName) (Utf8.fromString hash)
+tag tagName oid = do
+    hashM <- runMaybeT $ resolveOid oid
+    maybe (hPutStrLn stderr (oid <> " not exists!") >> exitFailure) (setRef (mkTagsRef tagName)) hashM
+

@@ -106,11 +106,7 @@ tag (MkTagOpt []) = preCheck $ do
     hPutStrLn stderr "Tag name cannot be empty!"
 
 tag (MkTagOpt [tagName]) = preCheck $ do
-    mb <- runMaybeT Data.getHEAD
-    maybe mempty tag' mb
-    where
-        tag' hash = Base.tag tagName (Utf8.toString hash)
+    Base.tag tagName "HEAD"
 
 tag (MkTagOpt (tagName:oid:xs)) = preCheck $ do
-    hashM <- runMaybeT $ resolveOid oid
-    maybe (hPutStrLn stderr (oid <> " not exists!") >> exitFailure) (Base.tag tagName . Utf8.toString) hashM
+    Base.tag tagName oid
