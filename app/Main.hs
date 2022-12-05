@@ -19,3 +19,4 @@ handleCmd (Commit opt) = commit opt
 handleCmd (Log opt) = log opt
 handleCmd (Checkout opt) = checkout opt
 handleCmd (Tag opt) = tag opt
+handleCmd (KLog opt) = klog opt

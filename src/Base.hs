@@ -23,7 +23,7 @@ import           System.Directory      (createDirectoryIfMissing,
                                         doesDirectoryExist,
                                         getDirectoryContents, removePathForcibly, doesFileExist)
 import           System.Exit           (exitFailure)
-import           System.FilePath       ((</>))
+import           System.FilePath       ((</>), makeRelative)
 import           System.IO             (hPutStrLn, stderr)
 import qualified Data.ByteString.Char8 as Char8
 import Control.Monad.IO.Class (MonadIO(liftIO))
@@ -219,3 +219,17 @@ tag tagName oid = do
     hashM <- runMaybeT $ resolveOid oid
     maybe (hPutStrLn stderr (oid <> " not exists!") >> exitFailure) (setRef (mkTagsRef tagName)) hashM
 
+klog :: IO ()
+klog = do
+
+    _
+    where
+        resolveRef :: FilePath -> IO (String, BS.ByteString)
+        resolveRef path = do
+            referent <- BS.readFile path
+            pure (makeRelative refsDir path, referent)
+        getAllRefs :: IO Ref
+        getAllRefs = do
+            paths <- listFiles refsDir
+            resolved <- forM paths resolveRef
+            _

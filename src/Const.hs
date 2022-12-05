@@ -1,13 +1,16 @@
 module Const where
 import System.FilePath ((</>))
 
-repoDir :: String
+repoDir :: FilePath
 repoDir = ".hgit"
 
-objectsDir :: String
+objectsDir :: FilePath
 objectsDir = repoDir </> "objects"
 
-headFile :: String
+refsDir :: FilePath
+refsDir = repoDir </> "refs"
+
+headFile :: FilePath
 headFile = repoDir </> "HEAD"
 
 spaceChar :: (Num a) => a

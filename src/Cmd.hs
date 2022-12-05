@@ -9,6 +9,7 @@ module Cmd
   , LogOpt(..)
   , CheckoutOpt(..)
   , TagOpt(..)
+  , KlogOpt(..)
   , initRepo
   , catFile
   , hashObject
@@ -18,6 +19,7 @@ module Cmd
   , log
   , checkout
   , tag
+  , klog
   ) where
 
 import qualified Data.ByteString.Char8 as Char8
@@ -110,3 +112,9 @@ tag (MkTagOpt [tagName]) = preCheck $ do
 
 tag (MkTagOpt (tagName:oid:xs)) = preCheck $ do
     Base.tag tagName oid
+
+data KlogOpt = MkKlogOpt
+
+klog :: KlogOpt -> IO ()
+klog MkKlogOpt = preCheck $ do
+    _
