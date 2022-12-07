@@ -160,19 +160,18 @@ commit msg = do
     setHEAD commitHash
     putStrLn . Utf8.toString $ commitHash
 
-getCommit :: String -> MaybeT IO ParsedObj
-getCommit hash = do
-    objM <- lift $ getObject hash
-    let parsedM = toParsedObj <$> objM
-    MaybeT . pure $ parsedM
+getCommit :: String -> MaybeT IO (ParsedObj, BS.ByteString)
+getCommit oid = do
+    hash <- resolveOid oid
+    objM <- lift $ getObject (Utf8.toString hash)
+    let resultM = (\obj -> (toParsedObj obj, hash)) <$> objM
+    MaybeT . pure $ resultM
 
 log :: String -> IO ()
 log oid = do
     runMaybeT $ do
-        hash <- resolveOid oid
-        let hashStr = Utf8.toString hash
-        comm <- getCommit hashStr
-        printLog hashStr comm
+        (comm, hash) <- getCommit oid
+        printLog (Utf8.toString hash) comm
     pure ()
 
     where
@@ -187,14 +186,13 @@ log oid = do
         printParent MkCommitHeaders{tree = t, parent = Nothing} = mzero
         printParent MkCommitHeaders{tree = t, parent = Just p} = do
             let pStr = Utf8.toString p
-            comm <- getCommit pStr
+            (comm, hash) <- getCommit pStr
             printLog pStr comm
 
 checkout :: String -> IO ()
 checkout oid = do
     runMaybeT $ do
-        hash <- resolveOid oid
-        comm <- getCommit (Utf8.toString hash)
+        (comm, hash) <- getCommit oid
         lift $ readCommit comm
         lift $ setHEAD hash
     pure ()
@@ -224,6 +222,7 @@ klog = do
 
     _
     where
+        -- (refname, referent)
         resolveRef :: FilePath -> IO (String, BS.ByteString)
         resolveRef path = do
             referent <- BS.readFile path
