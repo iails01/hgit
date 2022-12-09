@@ -9,6 +9,7 @@ module Base
     , checkout
     , tag
     , resolveOid
+    , klog
     ) where
 
 import           Const
@@ -24,7 +25,7 @@ import           System.Directory      (createDirectoryIfMissing,
                                         getDirectoryContents, removePathForcibly, doesFileExist)
 import           System.Exit           (exitFailure)
 import           System.FilePath       ((</>), makeRelative)
-import           System.IO             (hPutStrLn, stderr)
+import           System.IO             (hPutStrLn, stderr, hPutStr, hClose)
 import qualified Data.ByteString.Char8 as Char8
 import Control.Monad.IO.Class (MonadIO(liftIO))
 import Control.Monad.Trans.Class ( MonadTrans(lift) )
@@ -33,6 +34,10 @@ import Util
 import Prelude hiding (log)
 import Control.Monad (MonadPlus(mzero))
 import Control.Applicative ((<|>))
+import System.Process
+import qualified Data.Set as Set
+import Data.Set (Set)
+import GHC.Base (join)
 
 data ParsedObj
     = ParsedBlob BS.ByteString
@@ -219,16 +224,68 @@ tag tagName oid = do
 
 klog :: IO ()
 klog = do
+    refs <- getAllRefs
+    commits <- getCommits refs
+    let dot = "digraph commits {\n" <> mconcat [ "\"" <> refname <> "\" [shape=note]\n\"" <> refname <> "\" -> \"" <> Utf8.toString referent <> "\"\n"
+            | (refname, referent) <- refs ] <> "}"
 
-    _
+    putStrLn dot
+    (Just stdin, _, _, _) <- createProcess (proc "dot" ["-Tjpg", "-o", "k.jpg"]) {std_in = CreatePipe}
+    hPutStr stdin dot
+    hClose stdin
     where
+        getAllRefs :: IO [(String, BS.ByteString)]
+        getAllRefs = do
+            paths <- listFiles refsDir
+            forM paths resolveRef
         -- (refname, referent)
         resolveRef :: FilePath -> IO (String, BS.ByteString)
         resolveRef path = do
             referent <- BS.readFile path
             pure (makeRelative refsDir path, referent)
-        getAllRefs :: IO Ref
-        getAllRefs = do
-            paths <- listFiles refsDir
-            resolved <- forM paths resolveRef
-            _
+        getCommits :: [(String, BS.ByteString)] -> IO [(ParsedObj, BS.ByteString)]
+        getCommits refs = do
+            let mapper = runMaybeT . getCommit . Utf8.toString . snd
+            let actions = fmap mapper refs
+            let action = sequence actions
+            catMaybes <$> action
+        getLinks :: [(ParsedObj, BS.ByteString)] -> [BS.ByteString]
+        getLinks objs =
+            let parsedCommits = filter (\(ParsedCommit _ _, _) -> True) objs
+                parents = map (\(ParsedCommit commitHeaders _, hash) ->
+                    case parent commitHeaders of
+                        Nothing -> []
+                        Just p -> [p <> " -> " <> hash]) parsedCommits
+                uniqueParents = Set.toList $ Set.fromList $ concat parents
+            in uniqueParents
+
+
+type Visited = Set BS.ByteString
+
+traverseCommits :: Visited -> [(ParsedObj, BS.ByteString)] -> MaybeT IO [(ParsedObj, BS.ByteString)]
+traverseCommits visited objs = do
+  let parsedCommits = filter (\(obj, _) -> case obj of
+                                              ParsedCommit _ _ -> True
+                                              _ -> False
+                           ) objs
+      newVisited = Set.union visited $ Set.fromList $ map snd parsedCommits
+      newObjs = mapM (processCommit newVisited) parsedCommits
+      newObjs
+  o <- newObjs
+  return $ join newObjs
+
+processCommit :: Visited -> (ParsedObj, BS.ByteString) -> MaybeT IO [(ParsedObj, BS.ByteString)]
+processCommit visited (obj, hash) = do
+  case obj of
+    ParsedCommit commitHeaders _ -> do
+      case parent commitHeaders of
+        Nothing -> return []
+        Just p -> do
+          (obj, objHash) <- getCommit $ Utf8.toString p
+          if objHash `elem` visited then
+              return []
+          else do
+              let visited' = Set.insert objHash visited
+              traverseCommits visited' [(obj, objHash)]
+    _ -> return []
+

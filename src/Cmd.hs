@@ -117,4 +117,4 @@ data KlogOpt = MkKlogOpt
 
 klog :: KlogOpt -> IO ()
 klog MkKlogOpt = preCheck $ do
-    _
+    Base.klog

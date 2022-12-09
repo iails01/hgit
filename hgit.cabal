@@ -38,7 +38,9 @@ library hgit-lib
                       bytestring,
                       utf8-string,
                       transformers,
-                      mtl
+                      mtl,
+                      process,
+                      containers
 
     hs-source-dirs:   src
 
