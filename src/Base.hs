@@ -13,7 +13,7 @@ module Base
     ) where
 
 import           Const
-import Control.Monad ( forM, unless, when, forM_ )
+import Control.Monad ( forM, unless, when, forM_, foldM )
 import           Data
 import qualified Data.ByteString       as BS
 import qualified Data.ByteString.UTF8  as Utf8
@@ -226,14 +226,25 @@ klog :: IO ()
 klog = do
     refs <- getAllRefs
     commits <- getCommits refs
+    (lists, v) <- traverseCommits Set.empty commits
+    putStrLn $ show lists
+    putStrLn $ show v
+    let y = foldl' reducer "" lists
     let dot = "digraph commits {\n" <> mconcat [ "\"" <> refname <> "\" [shape=note]\n\"" <> refname <> "\" -> \"" <> Utf8.toString referent <> "\"\n"
-            | (refname, referent) <- refs ] <> "}"
-
+            | (refname, referent) <- refs ] <> (Utf8.toString y <> "\n}")
     putStrLn dot
-    (Just stdin, _, _, _) <- createProcess (proc "dot" ["-Tjpg", "-o", "k.jpg"]) {std_in = CreatePipe}
+    (stdin, _, _, _) <- runInteractiveCommand "dot -Tjpg -o k.jpg"
     hPutStr stdin dot
     hClose stdin
     where
+        reducer :: BS.ByteString -> (ParsedObj, BS.ByteString) -> BS.ByteString
+        reducer acc  (ParsedCommit MkCommitHeaders{parent= pm} _, hash) =
+                case pm of
+                    Nothing -> acc <> node
+                    Just p -> acc <> node <> "\"" <> hash <> "\" -> \"" <> p <> "\"\n"
+            where
+                node = "\"" <> hash <> "\" [shape=box style=filled label=\"" <> BS.take 10 hash <> "\"]\n"
+        reducer _ _ = ""
         getAllRefs :: IO [(String, BS.ByteString)]
         getAllRefs = do
             paths <- listFiles refsDir
@@ -249,43 +260,30 @@ klog = do
             let actions = fmap mapper refs
             let action = sequence actions
             catMaybes <$> action
-        getLinks :: [(ParsedObj, BS.ByteString)] -> [BS.ByteString]
-        getLinks objs =
-            let parsedCommits = filter (\(ParsedCommit _ _, _) -> True) objs
-                parents = map (\(ParsedCommit commitHeaders _, hash) ->
-                    case parent commitHeaders of
-                        Nothing -> []
-                        Just p -> [p <> " -> " <> hash]) parsedCommits
-                uniqueParents = Set.toList $ Set.fromList $ concat parents
-            in uniqueParents
-
 
 type Visited = Set BS.ByteString
 
-traverseCommits :: Visited -> [(ParsedObj, BS.ByteString)] -> MaybeT IO [(ParsedObj, BS.ByteString)]
+traverseCommits :: Visited -> [(ParsedObj, BS.ByteString)] -> IO ([(ParsedObj, BS.ByteString)], Visited)
 traverseCommits visited objs = do
-  let parsedCommits = filter (\(obj, _) -> case obj of
-                                              ParsedCommit _ _ -> True
-                                              _ -> False
-                           ) objs
-      newVisited = Set.union visited $ Set.fromList $ map snd parsedCommits
-      newObjs = mapM (processCommit newVisited) parsedCommits
-      newObjs
-  o <- newObjs
-  return $ join newObjs
+    newObjs
+    where
+        newVisited = Set.union visited $ Set.fromList $ map snd objs
+        newObjs = foldM (\(os, visited2) item -> do
+            (newO, newV) <- processCommit visited2 item
+            pure (os <> newO, newV)
+            ) (objs, newVisited)  objs
 
-processCommit :: Visited -> (ParsedObj, BS.ByteString) -> MaybeT IO [(ParsedObj, BS.ByteString)]
+processCommit :: Visited -> (ParsedObj, BS.ByteString) -> IO ([(ParsedObj, BS.ByteString)], Visited)
 processCommit visited (obj, hash) = do
   case obj of
     ParsedCommit commitHeaders _ -> do
       case parent commitHeaders of
-        Nothing -> return []
+        Nothing -> return ([], visited)
         Just p -> do
-          (obj, objHash) <- getCommit $ Utf8.toString p
-          if objHash `elem` visited then
-              return []
+          Just (objP, objHashP) <- runMaybeT $ getCommit $ Utf8.toString p
+          if objHashP `elem` visited then
+              return ([], visited)
           else do
-              let visited' = Set.insert objHash visited
-              traverseCommits visited' [(obj, objHash)]
-    _ -> return []
+              traverseCommits visited [(objP, objHashP)]
+    _ -> return ([], visited)
 
