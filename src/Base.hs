@@ -38,6 +38,7 @@ import System.Process
 import qualified Data.Set as Set
 import Data.Set (Set)
 import GHC.Base (join)
+import Control.Monad.Trans.State (StateT, get)
 
 data ParsedObj
     = ParsedBlob BS.ByteString
@@ -286,4 +287,28 @@ processCommit visited (obj, hash) = do
           else do
               traverseCommits visited [(objP, objHashP)]
     _ -> return ([], visited)
+
+
+type T = StateT Visited IO [(ParsedObj, BS.ByteString)]
+
+traverseCommits2 :: [(ParsedObj, BS.ByteString)] -> StateT Visited IO [(ParsedObj, BS.ByteString)]
+traverseCommits2 objs = do
+    visited <- get
+    let newVisited = Set.union visited $ Set.fromList $ map snd objs
+    foldM (\(os, visited2) item -> do
+            (newO, newV) <- processCommit2 visited2 item
+            pure (os <> newO, newV)
+            ) (objs, newVisited)  objs
+        
+
+processCommit2 :: (ParsedObj, BS.ByteString) -> StateT Visited IO [(ParsedObj, BS.ByteString)]
+processCommit2 (ParsedCommit MkCommitHeaders{parent=Just p} _, hash) = do
+    visited  <- get
+    Just (objP, objHashP) <- runMaybeT $ getCommit $ Utf8.toString p
+    if objHashP `elem` visited then
+        return ([], visited)
+    else do
+        traverseCommits2 visited [(objP, objHashP)]
+
+processCommit2 _ = pure []
 
