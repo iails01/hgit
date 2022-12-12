@@ -17,7 +17,7 @@ import Control.Monad ( forM, unless, when, forM_, foldM )
 import           Data
 import qualified Data.ByteString       as BS
 import qualified Data.ByteString.UTF8  as Utf8
-import           Data.Foldable         (foldl')
+import           Data.Foldable         (foldl', foldlM)
 import           Data.List             (intercalate, sort, partition)
 import           Data.Maybe            (catMaybes, mapMaybe)
 import           System.Directory      (createDirectoryIfMissing,
@@ -182,7 +182,8 @@ log :: String -> IO ()
 log oid = do
     runMaybeT $ do
         comm <- getCommit oid
-        printLog comm
+        (comms, _) <- lift $ runStateT (traverseCommits [comm]) Set.empty
+        forM_ comms printLog
     pure ()
 
     where
@@ -191,14 +192,6 @@ log oid = do
         printLog (ParsedTree hash _) = mzero
         printLog (ParsedCommit hash headers msg) = do
             lift $ putStrLn ("commit " <> Utf8.toString hash <> "\n\n\t" <> Utf8.toString msg <> "\n")
-            printParent headers
-
-        printParent :: CommitHeaders -> MaybeT IO ()
-        printParent MkCommitHeaders{tree = t, parent = Nothing} = mzero
-        printParent MkCommitHeaders{tree = t, parent = Just p} = do
-            let pStr = Utf8.toString p
-            comm <- getCommit pStr
-            printLog comm
 
 checkout :: String -> IO ()
 checkout oid = do
@@ -272,14 +265,14 @@ traverseCommits objs = do
     visited <- get
     let newVisited = Set.union visited $ Set.fromList $ map parsedObjHash objs
     put newVisited
-    foldM reducer objs objs
+    foldlM reducer objs objs
     where
         reducer :: [ParsedObj] -> ParsedObj -> StateT Visited IO [ParsedObj]
         reducer objs item = do
-            newObjs <- processCommit item
-            pure $ objs <> newObjs
-        processCommit :: ParsedObj -> StateT Visited IO [ParsedObj]
-        processCommit (ParsedCommit hash MkCommitHeaders{parent=Just p} _) = do
+            parents <- traverseParents item
+            pure $ objs <> parents
+        traverseParents :: ParsedObj -> StateT Visited IO [ParsedObj]
+        traverseParents (ParsedCommit hash MkCommitHeaders{parent=Just p} _) = do
             visited  <- get
             Just objP <- lift . runMaybeT $ getCommit $ Utf8.toString p
             let hashP = parsedObjHash objP
@@ -288,6 +281,6 @@ traverseCommits objs = do
             else do
                 put (Set.insert hashP visited)
                 traverseCommits [objP]
-        processCommit _ = pure []
+        traverseParents _ = pure []
     
 
