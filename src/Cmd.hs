@@ -10,6 +10,7 @@ module Cmd
   , CheckoutOpt(..)
   , TagOpt(..)
   , KlogOpt(..)
+  , BranchOpt(..)
   , initRepo
   , catFile
   , hashObject
@@ -20,6 +21,7 @@ module Cmd
   , checkout
   , tag
   , klog
+  , branch
   ) where
 
 import qualified Data.ByteString.Char8 as Char8
@@ -118,3 +120,15 @@ data KlogOpt = MkKlogOpt
 klog :: KlogOpt -> IO ()
 klog MkKlogOpt = preCheck $ do
     Base.klog
+
+data BranchOpt = MkBranchOpt [String]
+
+branch :: BranchOpt -> IO ()
+branch (MkBranchOpt []) = preCheck $ do
+    hPutStrLn stderr "Branch name cannot be empty!"
+
+branch (MkBranchOpt [branchName]) = preCheck $ do
+    Base.branch branchName "HEAD"
+    
+branch (MkBranchOpt (branchName:startPoint:xs)) = preCheck $ do
+    Base.branch branchName startPoint

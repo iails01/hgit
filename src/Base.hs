@@ -1,5 +1,4 @@
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE LambdaCase #-}
 
 module Base
     (writeTree
@@ -10,6 +9,7 @@ module Base
     , tag
     , resolveOid
     , klog
+    , branch
     ) where
 
 import           Const
@@ -224,7 +224,8 @@ tag tagName oid = do
 klog :: IO ()
 klog = do
     refs <- getAllRefs
-    commits <- getCommits refs
+    let hashes = Set.toList . Set.fromList $ fmap (Utf8.toString . snd) refs
+    commits <- getCommits hashes
     (lists, v) <- runStateT (traverseCommits commits) Set.empty
     let parentLinks = foldl' reducer "" lists
     let dot = "digraph commits {\n" <> mconcat [ "\"" <> refname <> "\" [shape=note]\n\"" <> refname <> "\" -> \"" <> Utf8.toString referent <> "\"\n"
@@ -250,10 +251,10 @@ klog = do
         resolveRef path = do
             referent <- BS.readFile path
             pure (makeRelative refsDir path, referent)
-        getCommits :: [(String, BS.ByteString)] -> IO [ParsedObj]
-        getCommits refs = do
-            let mapper = runMaybeT . getCommit . Utf8.toString . snd
-            let actions = fmap mapper refs
+        getCommits :: [String] -> IO [ParsedObj]
+        getCommits hashes = do
+            let mapper = runMaybeT . getCommit
+            let actions = fmap mapper hashes
             let action = sequence actions
             catMaybes <$> action
 
@@ -279,8 +280,10 @@ traverseCommits objs = do
             if hashP `elem` visited then
                 return []
             else do
-                put (Set.insert hashP visited)
                 traverseCommits [objP]
         traverseParents _ = pure []
     
-
+branch :: String -> String -> IO ()
+branch name oid = do
+    resolved <- runMaybeT $ resolveOid oid
+    maybe (hPutStrLn stderr (oid <> " not exists!") >> exitFailure) (setRef (mkHeadsRef name)) resolved

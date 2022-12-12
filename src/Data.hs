@@ -1,6 +1,22 @@
     {-# LANGUAGE OverloadedStrings #-}
 
-    module Data(hashObject, getObject, setHEAD, getHEAD, setRef, getRef, ObjType(..), getObjType, toObjType, Obj(..), Ref(..), headRef, mkTagsRef) where
+    module Data
+        ( hashObject
+        , getObject
+        , setHEAD
+        , getHEAD
+        , setRef
+        , getRef
+        , ObjType(..)
+        , getObjType
+        , toObjType
+        , Obj(..)
+        , Ref(..)
+        , headRef
+        , mkTagsRef
+        , mkHeadsRef
+    ) where
+
     import           Const
     import Control.Monad ( forM, when, MonadPlus(mzero) )
     import           Crypto.Hash.SHA1     (hash, hashlazy)
@@ -28,6 +44,7 @@
 
     headRef = MkRef "HEAD"
     mkTagsRef tagName = MkRef ("refs" </> "tags" </> tagName)
+    mkHeadsRef tagName = MkRef ("refs" </> "heads" </> tagName)
 
     hashObject :: Obj -> IO ByteString
     hashObject (MkObj objType fileContent) = do

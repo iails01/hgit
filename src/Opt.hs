@@ -20,6 +20,7 @@ data CmdOpts
   | Checkout !CheckoutOpt
   | Tag !TagOpt
   | Klog !KlogOpt
+  | Branch !BranchOpt
 
 parserInfo :: ParserInfo CmdOpts
 parserInfo = info (helper <*> cmdParser)
@@ -38,34 +39,38 @@ cmdParser = hsubparser (
     <> command "checkout" (info checkoutCmdParser (progDesc "Checkout commit."))
     <> command "tag" (info tagCmdParser (progDesc "Tag hash."))
     <> command "k" (info kCmdParser (progDesc "Log commits by graphic."))
+    <> command "branch" (info branchCmdParser (progDesc "Branch operations."))
   )
 
 initCmdParser :: Parser CmdOpts
 initCmdParser = pure Init
 
 hashObjectCmdParser :: Parser CmdOpts
-hashObjectCmdParser = HashObject <$> argument (str <&> MkHashObjectOpt) (metavar "file")
+hashObjectCmdParser = HashObject <$> argument (str <&> MkHashObjectOpt) (metavar "<file>")
 
 catFileCmdParser :: Parser CmdOpts
-catFileCmdParser = CatFile <$> argument (str <&> MkCatFileOpt) (metavar "hash")
+catFileCmdParser = CatFile <$> argument (str <&> MkCatFileOpt) (metavar "<hash>")
 
 writeTreeCmdParser :: Parser CmdOpts
-writeTreeCmdParser = WriteTree <$> argument (str <&> MkWriteTreeOpt) (metavar "dir")
+writeTreeCmdParser = WriteTree <$> argument (str <&> MkWriteTreeOpt) (metavar "<dir>")
 
 readTreeCmdParser :: Parser CmdOpts
-readTreeCmdParser = ReadTree <$> argument (str <&> MkReadTreeOpt) (metavar "hash")
+readTreeCmdParser = ReadTree <$> argument (str <&> MkReadTreeOpt) (metavar "<hash>")
 
 logCmdParser :: Parser CmdOpts
-logCmdParser = Log <$> (pure MkEmptyLogOpt <|> argument (str <&> MkLogOpt) (metavar "hash"))
+logCmdParser = Log <$> (pure MkEmptyLogOpt <|> argument (str <&> MkLogOpt) (metavar "<hash>"))
 
 checkoutCmdParser :: Parser CmdOpts
-checkoutCmdParser = Checkout <$> argument (str <&> MkCheckoutOpt) (metavar "hash")
+checkoutCmdParser = Checkout <$> argument (str <&> MkCheckoutOpt) (metavar "<hash>")
 
 tagCmdParser :: Parser CmdOpts
-tagCmdParser = Tag . MkTagOpt <$> some (argument str (metavar "tagName [hash]"))
+tagCmdParser = Tag . MkTagOpt <$> some (argument str (metavar "<tag_name> [<hash>]"))
 
 kCmdParser :: Parser CmdOpts
 kCmdParser = pure $ Klog MkKlogOpt
+
+branchCmdParser :: Parser CmdOpts
+branchCmdParser = Branch . MkBranchOpt <$> some (argument str (metavar "<branch> [<start_point>]"))
 
 commitCmdParser :: Parser CmdOpts
 commitCmdParser = Commit <$> commitOptParser
