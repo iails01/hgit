@@ -38,29 +38,34 @@ import System.Process
 import qualified Data.Set as Set
 import Data.Set (Set)
 import GHC.Base (join)
-import Control.Monad.Trans.State (StateT, get)
+import Control.Monad.Trans.State (StateT (runStateT), get)
 
 data ParsedObj
-    = ParsedBlob BS.ByteString
-    | ParsedTree [TreeItem]
-    | ParsedCommit CommitHeaders BS.ByteString
+    = ParsedBlob BS.ByteString BS.ByteString
+    | ParsedTree BS.ByteString [TreeItem]
+    | ParsedCommit BS.ByteString CommitHeaders BS.ByteString
     deriving(Show)
 
 data TreeItem = MkTreeItem ObjType BS.ByteString BS.ByteString deriving(Eq, Ord, Show)
 data CommitHeader = TreeHeader BS.ByteString | ParentHeader BS.ByteString deriving(Show)
 data CommitHeaders = MkCommitHeaders {raw :: [CommitHeader], tree :: BS.ByteString, parent :: Maybe BS.ByteString} deriving(Show)
 
-toParsedObj :: Obj -> ParsedObj
-toParsedObj (MkObj Blob bs) = ParsedBlob bs
-toParsedObj (MkObj Tree bs) = ParsedTree $ mapMaybe toTreeItem (Utf8.lines bs)
-toParsedObj (MkObj Commit bs) = ParsedCommit (toHeaders (mapMaybe toCommitHeader headerLines)) (BS.concat msgLines)
+parsedObjHash :: ParsedObj -> BS.ByteString
+parsedObjHash (ParsedBlob hash _) = hash
+parsedObjHash (ParsedTree hash _) = hash
+parsedObjHash (ParsedCommit hash _ _) = hash
+
+toParsedObj :: BS.ByteString -> Obj -> ParsedObj
+toParsedObj hash (MkObj Blob bs) = ParsedBlob hash bs
+toParsedObj hash (MkObj Tree bs) = ParsedTree hash $ mapMaybe toTreeItem (Utf8.lines bs)
+toParsedObj hash (MkObj Commit bs) = ParsedCommit hash (toHeaders (mapMaybe toCommitHeader headerLines)) (BS.concat msgLines)
     where
         (headerLines, msgLines) = break ( == "") (Utf8.lines bs)
 
 fromParsedObj :: ParsedObj -> Obj
-fromParsedObj (ParsedBlob bs) = MkObj Blob bs
-fromParsedObj (ParsedTree items) = MkObj Tree $ (BS.intercalate "\n" . map fromTreeItem) items
-fromParsedObj (ParsedCommit MkCommitHeaders{raw=headers} msg) = MkObj Commit (Char8.unlines (map fromCommitHeader headers) <> "\n" <> msg)
+fromParsedObj (ParsedBlob _ bs) = MkObj Blob bs
+fromParsedObj (ParsedTree _ items) = MkObj Tree $ (BS.intercalate "\n" . map fromTreeItem) items
+fromParsedObj (ParsedCommit _ MkCommitHeaders{raw=headers} msg) = MkObj Commit (Char8.unlines (map fromCommitHeader headers) <> "\n" <> msg)
 
 fromTreeItem :: TreeItem -> BS.ByteString
 fromTreeItem (MkTreeItem objType hash name) = getObjType objType <> " " <> hash <> " " <> name
@@ -106,7 +111,7 @@ writeTree dir = do
             content <- BS.readFile path
             hash <- hashObject (MkObj Blob content)
             pure $ MkTreeItem Blob hash (Utf8.fromString e)
-    hashObject (fromParsedObj . ParsedTree $ sort paths)
+    hashObject (fromParsedObj . ParsedTree "" $ sort paths)
 
 listFiles :: FilePath -> IO [FilePath]
 listFiles root = do
@@ -130,13 +135,13 @@ readObj oid = do
         readObjWithBase :: FilePath -> String -> IO ()
         readObjWithBase root hash = do
             obj <- getObject hash
-            maybe (hPutStrLn stderr ("Object " <> hash <> " not exists!")) (readObj' root) (toParsedObj <$> obj)
+            maybe (hPutStrLn stderr ("Object " <> hash <> " not exists!")) (readObj' root) (toParsedObj (Utf8.fromString hash) <$> obj)
 
         readObj' :: FilePath -> ParsedObj -> IO ()
-        readObj' path (ParsedCommit _ _) = mempty
-        readObj' path (ParsedBlob content) = BS.writeFile path content
+        readObj' path ParsedCommit {} = mempty
+        readObj' path (ParsedBlob _ content) = BS.writeFile path content
 
-        readObj' path (ParsedTree items) = do
+        readObj' path (ParsedTree _ items) = do
             createDirectoryIfMissing False path
             let actions = map (readItem path) items
             foldl' (>>) mempty actions
@@ -145,7 +150,7 @@ readObj oid = do
         readItem root (MkTreeItem Tree hash name) = readObjWithBase (root </> Utf8.toString name) (Utf8.toString hash)
         readItem root (MkTreeItem Blob hash name) = do
             obj <- getObject (Utf8.toString hash)
-            maybe (hPutStrLn stderr ("Object " <> Utf8.toString hash <> " not exists!")) (readObj' (root </> Utf8.toString name)) (toParsedObj <$> obj)
+            maybe (hPutStrLn stderr ("Object " <> Utf8.toString hash <> " not exists!")) (readObj' (root </> Utf8.toString name)) (toParsedObj hash <$> obj)
 
 emptyCurrentDir :: IO ()
 emptyCurrentDir = emptyDir "."
@@ -161,53 +166,53 @@ commit msg = do
     hash <- writeTree "."
     headM <- runMaybeT getHEAD
     let headers = [TreeHeader hash] <> maybe mempty (\head -> [ParentHeader head]) headM
-    let comm = ParsedCommit (toHeaders headers) (Utf8.fromString msg)
+    let comm = ParsedCommit "" (toHeaders headers) (Utf8.fromString msg)
     commitHash <- hashObject $ fromParsedObj comm
     setHEAD commitHash
     putStrLn . Utf8.toString $ commitHash
 
-getCommit :: String -> MaybeT IO (ParsedObj, BS.ByteString)
+getCommit :: String -> MaybeT IO ParsedObj
 getCommit oid = do
     hash <- resolveOid oid
     objM <- lift $ getObject (Utf8.toString hash)
-    let resultM = (\obj -> (toParsedObj obj, hash)) <$> objM
+    let resultM = toParsedObj hash <$> objM
     MaybeT . pure $ resultM
 
 log :: String -> IO ()
 log oid = do
     runMaybeT $ do
-        (comm, hash) <- getCommit oid
-        printLog (Utf8.toString hash) comm
+        comm <- getCommit oid
+        printLog comm
     pure ()
 
     where
-        printLog :: String -> ParsedObj -> MaybeT IO ()
-        printLog hash (ParsedBlob _) = mzero
-        printLog hash (ParsedTree _) = mzero
-        printLog hash (ParsedCommit headers msg) = do
-            lift $ putStrLn ("commit " <> hash <> "\n\n\t" <> Utf8.toString msg <> "\n")
+        printLog :: ParsedObj -> MaybeT IO ()
+        printLog (ParsedBlob hash _) = mzero
+        printLog (ParsedTree hash _) = mzero
+        printLog (ParsedCommit hash headers msg) = do
+            lift $ putStrLn ("commit " <> Utf8.toString hash <> "\n\n\t" <> Utf8.toString msg <> "\n")
             printParent headers
 
         printParent :: CommitHeaders -> MaybeT IO ()
         printParent MkCommitHeaders{tree = t, parent = Nothing} = mzero
         printParent MkCommitHeaders{tree = t, parent = Just p} = do
             let pStr = Utf8.toString p
-            (comm, hash) <- getCommit pStr
-            printLog pStr comm
+            comm <- getCommit pStr
+            printLog comm
 
 checkout :: String -> IO ()
 checkout oid = do
     runMaybeT $ do
-        (comm, hash) <- getCommit oid
-        lift $ readCommit comm
+        comm <- getCommit oid
+        hash <- readCommit comm
         lift $ setHEAD hash
     pure ()
     where
-        readCommit :: ParsedObj -> IO ()
-        readCommit (ParsedBlob _) = mempty
-        readCommit (ParsedTree _) = mempty
-        readCommit (ParsedCommit MkCommitHeaders{tree=t} _) = do
-            readObj . Utf8.toString $ t
+        readCommit :: ParsedObj -> MaybeT IO BS.ByteString
+        readCommit (ParsedCommit hash MkCommitHeaders{tree=t} _) = do
+            lift $ readObj . Utf8.toString $ t
+            pure hash
+        readCommit _ = mzero
 
 resolveOid :: String -> MaybeT IO BS.ByteString
 resolveOid oid = getRef (MkRef oid) <|> objHash oid <|> (lift (hPutStrLn stderr ("Cannot resolve this oid: " <> oid)) >> mzero)
@@ -227,19 +232,16 @@ klog :: IO ()
 klog = do
     refs <- getAllRefs
     commits <- getCommits refs
-    (lists, v) <- traverseCommits Set.empty commits
-    putStrLn $ show lists
-    putStrLn $ show v
-    let y = foldl' reducer "" lists
+    (lists, v) <- runStateT (traverseCommits commits) Set.empty
+    let parentLinks = foldl' reducer "" lists
     let dot = "digraph commits {\n" <> mconcat [ "\"" <> refname <> "\" [shape=note]\n\"" <> refname <> "\" -> \"" <> Utf8.toString referent <> "\"\n"
-            | (refname, referent) <- refs ] <> (Utf8.toString y <> "\n}")
-    putStrLn dot
+            | (refname, referent) <- refs ] <> (Utf8.toString parentLinks <> "\n}")
     (stdin, _, _, _) <- runInteractiveCommand "dot -Tjpg -o k.jpg"
     hPutStr stdin dot
     hClose stdin
     where
-        reducer :: BS.ByteString -> (ParsedObj, BS.ByteString) -> BS.ByteString
-        reducer acc  (ParsedCommit MkCommitHeaders{parent= pm} _, hash) =
+        reducer :: BS.ByteString -> ParsedObj -> BS.ByteString
+        reducer acc  (ParsedCommit hash MkCommitHeaders{parent= pm} _) =
                 case pm of
                     Nothing -> acc <> node
                     Just p -> acc <> node <> "\"" <> hash <> "\" -> \"" <> p <> "\"\n"
@@ -255,7 +257,7 @@ klog = do
         resolveRef path = do
             referent <- BS.readFile path
             pure (makeRelative refsDir path, referent)
-        getCommits :: [(String, BS.ByteString)] -> IO [(ParsedObj, BS.ByteString)]
+        getCommits :: [(String, BS.ByteString)] -> IO [ParsedObj]
         getCommits refs = do
             let mapper = runMaybeT . getCommit . Utf8.toString . snd
             let actions = fmap mapper refs
@@ -264,51 +266,25 @@ klog = do
 
 type Visited = Set BS.ByteString
 
-traverseCommits :: Visited -> [(ParsedObj, BS.ByteString)] -> IO ([(ParsedObj, BS.ByteString)], Visited)
-traverseCommits visited objs = do
-    newObjs
-    where
-        newVisited = Set.union visited $ Set.fromList $ map snd objs
-        newObjs = foldM (\(os, visited2) item -> do
-            (newO, newV) <- processCommit visited2 item
-            pure (os <> newO, newV)
-            ) (objs, newVisited)  objs
-
-processCommit :: Visited -> (ParsedObj, BS.ByteString) -> IO ([(ParsedObj, BS.ByteString)], Visited)
-processCommit visited (obj, hash) = do
-  case obj of
-    ParsedCommit commitHeaders _ -> do
-      case parent commitHeaders of
-        Nothing -> return ([], visited)
-        Just p -> do
-          Just (objP, objHashP) <- runMaybeT $ getCommit $ Utf8.toString p
-          if objHashP `elem` visited then
-              return ([], visited)
-          else do
-              traverseCommits visited [(objP, objHashP)]
-    _ -> return ([], visited)
-
-
-type T = StateT Visited IO [(ParsedObj, BS.ByteString)]
-
-traverseCommits2 :: [(ParsedObj, BS.ByteString)] -> StateT Visited IO [(ParsedObj, BS.ByteString)]
-traverseCommits2 objs = do
+-- 从这些commit出发，遍历所有可以到达的commit并返回（不重复遍历）
+traverseCommits :: [ParsedObj] -> StateT Visited IO [ParsedObj]
+traverseCommits objs = do
     visited <- get
-    let newVisited = Set.union visited $ Set.fromList $ map snd objs
-    foldM (\(os, visited2) item -> do
-            (newO, newV) <- processCommit2 visited2 item
-            pure (os <> newO, newV)
-            ) (objs, newVisited)  objs
-        
+    let newVisited = Set.union visited $ Set.fromList $ map parsedObjHash objs
+    foldM (\os item -> do
+            newO <- processCommit item
+            pure $ os <> newO
+            ) objs  objs
 
-processCommit2 :: (ParsedObj, BS.ByteString) -> StateT Visited IO [(ParsedObj, BS.ByteString)]
-processCommit2 (ParsedCommit MkCommitHeaders{parent=Just p} _, hash) = do
+
+processCommit :: ParsedObj -> StateT Visited IO [ParsedObj]
+processCommit (ParsedCommit hash MkCommitHeaders{parent=Just p} _) = do
     visited  <- get
-    Just (objP, objHashP) <- runMaybeT $ getCommit $ Utf8.toString p
-    if objHashP `elem` visited then
-        return ([], visited)
+    Just objP <- lift . runMaybeT $ getCommit $ Utf8.toString p
+    if parsedObjHash objP `elem` visited then
+        return []
     else do
-        traverseCommits2 visited [(objP, objHashP)]
+        traverseCommits [objP]
 
-processCommit2 _ = pure []
+processCommit _ = pure []
 
