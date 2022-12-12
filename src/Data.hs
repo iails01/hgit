@@ -43,6 +43,7 @@ newtype Ref = MkRef FilePath
 
 data RefObj 
     = MkSymbolic Ref
+    | MkDereference Ref ByteString
     | MkDirect ByteString
 
 headRef = MkRef "HEAD"
@@ -78,24 +79,33 @@ getObject hash = do
         pure . Just $ MkObj (toObjType fileType) (BS.drop 1 content)
     else pure Nothing
 
-getRef :: Ref -> MaybeT IO RefObj
-getRef (MkRef path)
-    =   getRef'' (MkRef $ "refs" </> "tags" </> path)
-    <|> getRef'' (MkRef $ "refs" </> "heads" </> path)
-    <|> getRef'' (MkRef $ "refs" </> path)
-    <|> getRef'' (MkRef $ path)
+getRef :: Ref -> Bool -> MaybeT IO RefObj
+getRef (MkRef path) deref
+    =   getRef' deref (MkRef $ "refs" </> "tags" </> path)
+    <|> getRef' deref (MkRef $ "refs" </> "heads" </> path)
+    <|> getRef' deref (MkRef $ "refs" </> path)
+    <|> getRef' deref (MkRef $ path)
 
     where
-        getRef'' :: Ref -> MaybeT IO RefObj
-        getRef'' ref = do
-            val <- getRef' ref
+        getRef' True ref = getDeRef ref
+        getRef' False ref = do
+            val <- getRefVal ref
+            let (t, v) = breakSubstring ": " val
+            if t == "ref" then pure $ MkSymbolic (MkRef . Utf8.toString . BS.drop 2 $ v)
+            else pure $ MkDirect val
+        getDeRef :: Ref -> MaybeT IO RefObj
+        getDeRef ref = do
+            val <- getRefVal ref
             let (t, v) = breakSubstring ": " val
             if t == "ref" then do
-                refObj <- getRef'' (MkRef . Utf8.toString . BS.drop 2 $ v)
-                pure refObj {symbolic = True}
-            else pure MkRefObj {ref = ref, symbolic = False, hash = val}
-        getRef' :: Ref -> MaybeT IO ByteString
-        getRef' (MkRef path) = do
+                refObj <- getDeRef (MkRef . Utf8.toString . BS.drop 2 $ v)
+                pure $ case refObj of
+                    MkDirect hash -> MkDereference ref hash
+                    MkDereference _ hash -> MkDereference ref hash
+                    a -> a
+            else pure $ MkDirect val
+        getRefVal :: Ref -> MaybeT IO ByteString
+        getRefVal (MkRef path) = do
             exists <- lift $ doesFileExist (repoDir </> path)
             if exists then do
                 ei <- lift $ try (BS.readFile path) :: MaybeT IO (Either SomeException ByteString)
@@ -112,11 +122,17 @@ setRef (MkRef path) refObj = do
     BS.writeFile file (toContent refObj)
     where
         toContent :: RefObj -> ByteString
-        toContent MkRefObj{ref = MkRef refname, symbolic = isSymbolic, hash = hash} = 
-            if isSymbolic then "ref: " <> Utf8.fromString refname else hash
+        toContent (MkDirect hash) = hash
+        toContent (MkDereference _ hash) = hash
+        toContent (MkSymbolic (MkRef ref)) = "ref: " <> Utf8.fromString ref
 
 setHEAD :: ByteString -> IO ()
-setHEAD = setRef headRef
+setHEAD = setRef headRef . MkDirect
 
 getHEAD :: MaybeT IO ByteString
-getHEAD = getRef headRef
+getHEAD = do
+    refObj <- getRef headRef True
+    pure $ case refObj of
+        MkDirect hash -> hash
+        MkDereference _ hash -> hash
+        MkSymbolic r -> error "Error, head"
