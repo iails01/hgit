@@ -223,17 +223,19 @@ tag tagName oid = do
 
 klog :: IO ()
 klog = do
-    refs <- getAllRefs
-    let hashes = Set.toList . Set.fromList $ fmap (Utf8.toString . snd) refs
-    commits <- getCommits hashes
-    (lists, v) <- runStateT (traverseCommits commits) Set.empty
-    let parentLinks = foldl' reducer "" lists
-    let dot = "digraph commits {\n" <> mconcat [ "\"" <> refname <> "\" [shape=note]\n\"" <> refname <> "\" -> \"" <> Utf8.toString referent <> "\"\n"
-            | (refname, referent) <- refs ] <> (Utf8.toString parentLinks <> "\n}")
-    (stdin, _, _, _) <- runInteractiveCommand "dot -Tjpg -o k.jpg"
-    hPutStr stdin dot
-    hClose stdin
+    refsM <- runMaybeT getAllRefs
+    maybe (hPutStrLn stderr "Refers crashed!" >> exitFailure) klog' refsM
     where
+        klog' refs = do
+            let hashes = Set.toList . Set.fromList $ fmap (Utf8.toString . snd) refs
+            commits <- getCommits hashes
+            (lists, v) <- runStateT (traverseCommits commits) Set.empty
+            let parentLinks = foldl' reducer "" lists
+            let dot = "digraph commits {\n" <> mconcat [ "\"" <> refname <> "\" [shape=note]\n\"" <> refname <> "\" -> \"" <> Utf8.toString referent <> "\"\n"
+                    | (refname, referent) <- refs ] <> (Utf8.toString parentLinks <> "\n}")
+            (stdin, _, _, _) <- runInteractiveCommand "dot -Tjpg -o k.jpg"
+            hPutStr stdin dot
+            hClose stdin
         reducer :: BS.ByteString -> ParsedObj -> BS.ByteString
         reducer acc  (ParsedCommit hash MkCommitHeaders{parent= pm} _) =
                 case pm of
@@ -242,15 +244,16 @@ klog = do
             where
                 node = "\"" <> hash <> "\" [shape=box style=filled label=\"" <> BS.take 10 hash <> "\"]\n"
         reducer _ _ = ""
-        getAllRefs :: IO [(String, BS.ByteString)]
+        getAllRefs :: MaybeT IO [(String, BS.ByteString)]
         getAllRefs = do
-            paths <- listFiles refsDir
+            paths <- lift $ listFiles refsDir
             forM paths resolveRef
         -- (refname, referent)
-        resolveRef :: FilePath -> IO (String, BS.ByteString)
+        resolveRef :: FilePath -> MaybeT IO (String, BS.ByteString)
         resolveRef path = do
-            referent <- BS.readFile path
-            pure (makeRelative refsDir path, referent)
+            let refname = makeRelative refsDir path
+            referent <- getRef (MkRef refname)
+            pure (refname, referent)
         getCommits :: [String] -> IO [ParsedObj]
         getCommits hashes = do
             let mapper = runMaybeT . getCommit
@@ -274,11 +277,11 @@ traverseCommits objs = do
             pure $ objs <> parents
         traverseParents :: ParsedObj -> StateT Visited IO [ParsedObj]
         traverseParents (ParsedCommit hash MkCommitHeaders{parent=Just p} _) = do
-            visited  <- get
+            visited <- get
             Just objP <- lift . runMaybeT $ getCommit $ Utf8.toString p
             let hashP = parsedObjHash objP
             if hashP `elem` visited then
-                return []
+                pure []
             else do
                 traverseCommits [objP]
         traverseParents _ = pure []
