@@ -126,7 +126,7 @@ data BranchOpt = MkBranchOpt [String]
 
 branch :: BranchOpt -> IO ()
 branch (MkBranchOpt []) = preCheck $ do
-    hPutStrLn stderr "Branch name cannot be empty!"
+    Base.listBranchs
 
 branch (MkBranchOpt [branchName]) = preCheck $ do
     Base.branch branchName "HEAD"

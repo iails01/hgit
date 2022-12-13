@@ -75,7 +75,7 @@ statusCmdParser :: Parser CmdOpts
 statusCmdParser = pure $ Status MkStatusOpt
 
 branchCmdParser :: Parser CmdOpts
-branchCmdParser = Branch . MkBranchOpt <$> some (argument str (metavar "<branch> [<start_point>]"))
+branchCmdParser = Branch . MkBranchOpt <$> many (argument str (metavar "<branch> [<start_point>]"))
 
 commitCmdParser :: Parser CmdOpts
 commitCmdParser = Commit <$> commitOptParser

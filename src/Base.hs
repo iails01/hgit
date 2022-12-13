@@ -1,5 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE GADTs #-}
+{-# LANGUAGE DataKinds #-}
 
 module Base
     ( initRepo
@@ -12,6 +13,7 @@ module Base
     , resolveOid
     , klog
     , branch
+    , listBranchs
     , status
     ) where
 
@@ -42,6 +44,7 @@ import qualified Data.Set as Set
 import Data.Set (Set)
 import GHC.Base (join)
 import Control.Monad.Trans.State (StateT (runStateT), get, put)
+import Data.Functor (void)
 
 data ParsedObj
     = ParsedBlob BS.ByteString BS.ByteString
@@ -123,13 +126,15 @@ writeTree dir = do
 
 listFiles :: FilePath -> IO [FilePath]
 listFiles root = do
-  ds <- getDirectoryContents root
-  paths <- forM (filter validDir ds) $ \e -> do
-    let path = root </> e
-    isDir <- doesDirectoryExist path
-    if isDir then listFiles path
-    else return [path]
-  return (concat paths)
+    rootExists <- doesDirectoryExist root
+    if not rootExists then pure [] else do
+        ds <- getDirectoryContents root
+        paths <- forM (filter validDir ds) $ \e -> do
+            let path = root </> e
+            isDir <- doesDirectoryExist path
+            if isDir then listFiles path
+            else return [path]
+        return (concat paths)
 
 validDir = (`notElem` [".","..",repoDir])
 
@@ -224,16 +229,33 @@ resolveOid oid = fmap (\(MkDereference _ hash) -> hash) (resolveRef oid) <|> obj
             exists <- lift $ doesFileExist (objectsDir </> hash)
             if exists then pure (Utf8.fromString hash)
             else mzero
-        resolveRef path = Prelude.foldl (\ acc r -> acc <|> getDeRef r) mzero (mkAllRefs path)
+        resolveRef path = foldl' (\ acc r -> acc <|> getDeRef r) mzero (mkAllRefs path)
 
 tag :: String -> String -> IO ()
 tag tagName oid = do
     hashM <- runMaybeT $ resolveOid oid
     maybe (hPutStrLn stderr (oid <> " not exists!") >> exitFailure) (setRef (mkTagsRef tagName) . MkDirect) hashM
 
+getAllRefs :: FilePath -> Bool -> MaybeT IO [(String, BS.ByteString)]
+getAllRefs root includeHead = do
+    paths <- lift $ listFiles root
+    let allPaths = if includeHead then "HEAD": paths else paths
+    forM allPaths resolveRef
+    where
+        -- (label, referent)
+        resolveRef :: FilePath -> MaybeT IO (String, BS.ByteString)
+        resolveRef path = do
+            let refPath = makeRelative repoDir path
+            let ref = MkRef refPath
+            (MkDereference _ referent) <- getDeRef ref
+            pure (toLabel ref, referent)
+
+toLabel :: Ref -> String
+toLabel (MkRef refPath) = makeRelative "refs" refPath
+
 klog :: IO ()
 klog = do
-    refsM <- runMaybeT getAllRefs
+    refsM <- runMaybeT $ getAllRefs refsDir True
     maybe (hPutStrLn stderr "Refers crashed!" >> exitFailure) klog' refsM
     where
         klog' refs = do
@@ -254,20 +276,6 @@ klog = do
             where
                 node = "\"" <> hash <> "\" [shape=box style=filled label=\"" <> BS.take 10 hash <> "\"]\n"
         reducer _ _ = ""
-        getAllRefs :: MaybeT IO [(String, BS.ByteString)]
-        getAllRefs = do
-            paths <- lift $ listFiles refsDir
-            forM ("HEAD": paths) resolveRef
-        -- (label, referent)
-        resolveRef :: FilePath -> MaybeT IO (String, BS.ByteString)
-        resolveRef path = do
-            -- makeRelative ".hgit" "HEAD"
-            let refname = makeRelative repoDir path
-            (MkDereference _ referent) <- getDeRef (MkRef refname)
-            pure (toLabel refname, referent)
-
-        toLabel :: FilePath -> String
-        toLabel = makeRelative "refs"
 
         getCommits :: [BS.ByteString] -> IO [ParsedObj]
         getCommits hashes = do
@@ -305,6 +313,19 @@ branch :: String -> String -> IO ()
 branch name oid = do
     resolved <- runMaybeT $ resolveOid oid
     maybe (hPutStrLn stderr (oid <> " not exists!") >> exitFailure) (setRef (mkHeadsRef name) . MkDirect) resolved
+
+listBranchs :: IO ()
+listBranchs = void . runMaybeT $ do
+    refs <- getAllRefs (repoDir </> headsRefPath) False
+    headRef <- getRef headRef
+    let output = fmap (mapper headRef) refs
+    lift $ putStrLn $ intercalate "\n" output
+    where
+        mapper :: RefObj 'RefKind -> (String, BS.ByteString) -> String
+        mapper headRef (refLabel, hash) = prefix headRef refLabel <> makeRelative "heads" refLabel
+        prefix :: RefObj 'RefKind -> String -> String
+        prefix (MkSymbolic headRef) refLabel = if toLabel headRef == refLabel then "*" else " "
+        prefix _ _ = " "
 
 isBranch :: String -> IO Bool
 isBranch oid = do
