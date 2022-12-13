@@ -1,4 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE DataKinds #-}
+{-# LANGUAGE KindSignatures #-}
+{-# LANGUAGE GADTs #-}
 
 module Data
     ( hashObject
@@ -7,6 +10,9 @@ module Data
     , getHEAD
     , setRef
     , getRef
+    , getDeRef
+    , RefObjKind(..)
+    , RefObj(..)
     , ObjType(..)
     , getObjType
     , toObjType
@@ -19,7 +25,7 @@ module Data
 
 import           Const
 import Control.Monad ( forM, when, MonadPlus(mzero) )
-import           Data.ByteString      as BS
+import qualified          Data.ByteString      as BS
 import qualified Data.ByteString.UTF8 as Utf8
 import           System.Directory     (createDirectoryIfMissing,
                                     doesDirectoryExist, doesFileExist,
@@ -37,20 +43,22 @@ import System.FilePath.Posix (takeDirectory)
 
 data ObjType = Blob | Tree | Commit deriving(Eq, Ord, Show)
 
-data Obj = MkObj ObjType ByteString
+data Obj = MkObj ObjType BS.ByteString
 
 newtype Ref = MkRef FilePath
 
-data RefObj 
-    = MkSymbolic Ref
-    | MkDereference Ref ByteString
-    | MkDirect ByteString
+data RefObjKind = RefKind | DerefKind
+
+data RefObj (a :: RefObjKind) where
+    MkDirect :: BS.ByteString -> RefObj RefKind
+    MkSymbolic :: Ref -> RefObj RefKind
+    MkDereference :: Ref -> BS.ByteString -> RefObj DerefKind
 
 headRef = MkRef "HEAD"
 mkTagsRef tagName = MkRef ("refs" </> "tags" </> tagName)
 mkHeadsRef tagName = MkRef ("refs" </> "heads" </> tagName)
 
-hashObject :: Obj -> IO ByteString
+hashObject :: Obj -> IO BS.ByteString
 hashObject (MkObj objType fileContent) = do
     let content = getObjType objType <> "\0" <> fileContent
     let hash = toHexHash content
@@ -58,12 +66,12 @@ hashObject (MkObj objType fileContent) = do
     BS.writeFile (objectsDir </> hash) content
     pure $ Utf8.fromString hash
 
-getObjType :: ObjType -> ByteString
+getObjType :: ObjType -> BS.ByteString
 getObjType Blob = "blob"
 getObjType Tree = "tree"
 getObjType Commit = "commit"
 
-toObjType :: ByteString -> ObjType
+toObjType :: BS.ByteString -> ObjType
 toObjType "blob" = Blob
 toObjType "tree" = Tree
 toObjType "commit" = Commit
@@ -75,64 +83,61 @@ getObject hash = do
     exists <- doesFileExist file
     if exists then do
         bs <- BS.readFile file
-        let (fileType, content) = breakSubstring "\0" bs
+        let (fileType, content) = BS.breakSubstring "\0" bs
         pure . Just $ MkObj (toObjType fileType) (BS.drop 1 content)
     else pure Nothing
 
-getRef :: Ref -> Bool -> MaybeT IO RefObj
-getRef (MkRef path) deref
-    =   getRef' deref (MkRef $ "refs" </> "tags" </> path)
-    <|> getRef' deref (MkRef $ "refs" </> "heads" </> path)
-    <|> getRef' deref (MkRef $ "refs" </> path)
-    <|> getRef' deref (MkRef $ path)
+getRefVal :: Ref -> MaybeT IO BS.ByteString
+getRefVal (MkRef path) = do
+    let file = repoDir </> path
+    exists <- lift $ doesFileExist file
+    if exists then do
+        ei <- lift $ try (BS.readFile file) :: MaybeT IO (Either SomeException BS.ByteString)
+        case ei of
+            Left e -> mzero
+            Right v -> pure v
+    else mzero
 
+allRefs :: Ref -> [Ref]
+allRefs (MkRef path) = fmap (\p -> MkRef $ p </> path) ["refs" </> "tags", "refs" </> "heads", "refs", ""]
+
+getDeRef :: Ref -> MaybeT IO (RefObj DerefKind)
+getDeRef ref = Prelude.foldl (\ acc r -> acc <|> getDeRef' r) mzero (allRefs ref)
     where
-        getRef' True ref = getDeRef ref
-        getRef' False ref = do
+        getDeRef' ref = do
             val <- getRefVal ref
-            let (t, v) = breakSubstring ": " val
+            let (t, v) = BS.breakSubstring ": " val
+            if t == "ref" then do
+                refObj <- getDeRef' (MkRef . Utf8.toString . BS.drop 2 $ v)
+                pure $ case refObj of
+                    MkDereference _ hash -> MkDereference ref hash
+            else pure $ MkDereference ref val
+
+getRef ::  Ref -> MaybeT IO (RefObj RefKind)
+getRef ref = Prelude.foldl (\ acc r -> acc <|> getRef' r) mzero (allRefs ref)
+    where
+        getRef' :: Ref -> MaybeT IO (RefObj RefKind)
+        getRef' ref = do
+            val <- getRefVal ref
+            let (t, v) = BS.breakSubstring ": " val
             if t == "ref" then pure $ MkSymbolic (MkRef . Utf8.toString . BS.drop 2 $ v)
             else pure $ MkDirect val
-        getDeRef :: Ref -> MaybeT IO RefObj
-        getDeRef ref = do
-            val <- getRefVal ref
-            let (t, v) = breakSubstring ": " val
-            if t == "ref" then do
-                refObj <- getDeRef (MkRef . Utf8.toString . BS.drop 2 $ v)
-                pure $ case refObj of
-                    MkDirect hash -> MkDereference ref hash
-                    MkDereference _ hash -> MkDereference ref hash
-                    a -> a
-            else pure $ MkDirect val
-        getRefVal :: Ref -> MaybeT IO ByteString
-        getRefVal (MkRef path) = do
-            exists <- lift $ doesFileExist (repoDir </> path)
-            if exists then do
-                ei <- lift $ try (BS.readFile path) :: MaybeT IO (Either SomeException ByteString)
-                case ei of
-                    Left e -> mzero
-                    Right v -> pure v
-            else mzero
 
-setRef :: Ref -> RefObj -> IO ()
+setRef :: Ref -> RefObj RefKind -> IO ()
 setRef (MkRef path) refObj = do
     let file = repoDir </> path
     let dir = takeDirectory file
     createDirectoryIfMissing True dir
     BS.writeFile file (toContent refObj)
     where
-        toContent :: RefObj -> ByteString
+        toContent :: RefObj RefKind -> BS.ByteString
         toContent (MkDirect hash) = hash
-        toContent (MkDereference _ hash) = hash
         toContent (MkSymbolic (MkRef ref)) = "ref: " <> Utf8.fromString ref
 
-setHEAD :: ByteString -> IO ()
-setHEAD = setRef headRef . MkDirect
+setHEAD :: RefObj RefKind -> IO ()
+setHEAD = setRef headRef
 
-getHEAD :: MaybeT IO ByteString
+getHEAD :: MaybeT IO BS.ByteString
 getHEAD = do
-    refObj <- getRef headRef True
-    pure $ case refObj of
-        MkDirect hash -> hash
-        MkDereference _ hash -> hash
-        MkSymbolic r -> error "Error, head"
+    (MkDereference _ hash) <- getDeRef headRef
+    pure hash

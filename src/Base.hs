@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE GADTs #-}
 
 module Base
     (writeTree
@@ -168,7 +169,7 @@ commit msg = do
     let headers = [TreeHeader hash] <> maybe mempty (\head -> [ParentHeader head]) headM
     let comm = ParsedCommit "" (toHeaders headers) (Utf8.fromString msg)
     commitHash <- hashObject $ fromParsedObj comm
-    setHEAD commitHash
+    setHEAD (MkDirect commitHash)
     putStrLn . Utf8.toString $ commitHash
 
 getCommit :: String -> MaybeT IO ParsedObj
@@ -198,7 +199,7 @@ checkout oid = do
     runMaybeT $ do
         comm <- getCommit oid
         hash <- readCommit comm
-        lift $ setHEAD hash
+        lift $ setHEAD (MkDirect hash)
     pure ()
     where
         readCommit :: ParsedObj -> MaybeT IO BS.ByteString
@@ -208,7 +209,7 @@ checkout oid = do
         readCommit _ = mzero
 
 resolveOid :: String -> MaybeT IO BS.ByteString
-resolveOid oid = getRef (MkRef oid) <|> objHash oid <|> (lift (hPutStrLn stderr ("Cannot resolve this oid: " <> oid)) >> mzero)
+resolveOid oid = fmap (\(MkDereference _ hash) -> hash) (getDeRef (MkRef oid)) <|> objHash oid <|> (lift (hPutStrLn stderr ("Cannot resolve this oid: " <> oid)) >> mzero)
     where
         objHash :: String -> MaybeT IO BS.ByteString
         objHash hash = do
@@ -219,7 +220,7 @@ resolveOid oid = getRef (MkRef oid) <|> objHash oid <|> (lift (hPutStrLn stderr 
 tag :: String -> String -> IO ()
 tag tagName oid = do
     hashM <- runMaybeT $ resolveOid oid
-    maybe (hPutStrLn stderr (oid <> " not exists!") >> exitFailure) (setRef (mkTagsRef tagName)) hashM
+    maybe (hPutStrLn stderr (oid <> " not exists!") >> exitFailure) (setRef (mkTagsRef tagName) . MkDirect) hashM
 
 klog :: IO ()
 klog = do
@@ -252,7 +253,7 @@ klog = do
         resolveRef :: FilePath -> MaybeT IO (String, BS.ByteString)
         resolveRef path = do
             let refname = makeRelative refsDir path
-            referent <- getRef (MkRef refname)
+            (MkDereference _ referent) <- getDeRef (MkRef refname)
             pure (refname, referent)
         getCommits :: [String] -> IO [ParsedObj]
         getCommits hashes = do
@@ -289,4 +290,4 @@ traverseCommits objs = do
 branch :: String -> String -> IO ()
 branch name oid = do
     resolved <- runMaybeT $ resolveOid oid
-    maybe (hPutStrLn stderr (oid <> " not exists!") >> exitFailure) (setRef (mkHeadsRef name)) resolved
+    maybe (hPutStrLn stderr (oid <> " not exists!") >> exitFailure) (setRef (mkHeadsRef name) . MkDirect) resolved
