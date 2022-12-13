@@ -21,3 +21,4 @@ handleCmd (Checkout opt) = checkout opt
 handleCmd (Tag opt) = tag opt
 handleCmd (Klog opt) = klog opt
 handleCmd (Branch opt) = branch opt
+handleCmd (Status opt) = status opt

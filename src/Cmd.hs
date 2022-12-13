@@ -11,6 +11,7 @@ module Cmd
   , TagOpt(..)
   , KlogOpt(..)
   , BranchOpt(..)
+  , StatusOpt(..)
   , initRepo
   , catFile
   , hashObject
@@ -22,6 +23,7 @@ module Cmd
   , tag
   , klog
   , branch
+  , status
   ) where
 
 import qualified Data.ByteString.Char8 as Char8
@@ -131,3 +133,9 @@ branch (MkBranchOpt [branchName]) = preCheck $ do
 
 branch (MkBranchOpt (branchName:startPoint:xs)) = preCheck $ do
     Base.branch branchName startPoint
+
+data StatusOpt = MkStatusOpt 
+
+status :: StatusOpt -> IO ()
+status _ = preCheck $ do
+    Base.status

@@ -24,6 +24,9 @@ module Data
     , mkTagsRef
     , mkHeadsRef
     , mkAllRefs
+    , tagsRefPath
+    , headsRefPath
+    , rootRefPath
 ) where
 
 import           Const
@@ -62,8 +65,12 @@ deriving instance Show (RefObj a)
 headRef = MkRef "HEAD"
 mkTagsRef tagName = MkRef ("refs" </> "tags" </> tagName)
 mkHeadsRef tagName = MkRef ("refs" </> "heads" </> tagName)
+headsRefPath = "refs" </> "heads"
+tagsRefPath = "refs" </> "tags"
+rootRefPath = "refs"
+
 mkAllRefs :: FilePath -> [Ref]
-mkAllRefs path = fmap (\p -> MkRef $ p </> path) ["refs" </> "tags", "refs" </> "heads", "refs", ""]
+mkAllRefs path = fmap (\p -> MkRef $ p </> path) [tagsRefPath, headsRefPath, rootRefPath, ""]
 
 hashObject :: Obj -> IO BS.ByteString
 hashObject (MkObj objType fileContent) = do

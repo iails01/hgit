@@ -21,6 +21,7 @@ data CmdOpts
   | Tag !TagOpt
   | Klog !KlogOpt
   | Branch !BranchOpt
+  | Status !StatusOpt
 
 parserInfo :: ParserInfo CmdOpts
 parserInfo = info (helper <*> cmdParser)
@@ -40,6 +41,7 @@ cmdParser = hsubparser (
     <> command "tag" (info tagCmdParser (progDesc "Tag hash."))
     <> command "k" (info kCmdParser (progDesc "Log commits by graphic."))
     <> command "branch" (info branchCmdParser (progDesc "Branch operations."))
+    <> command "status" (info statusCmdParser (progDesc "Show HEAD status."))
   )
 
 initCmdParser :: Parser CmdOpts
@@ -68,6 +70,9 @@ tagCmdParser = Tag . MkTagOpt <$> some (argument str (metavar "<tag_name> [<hash
 
 kCmdParser :: Parser CmdOpts
 kCmdParser = pure $ Klog MkKlogOpt
+
+statusCmdParser :: Parser CmdOpts
+statusCmdParser = pure $ Status MkStatusOpt
 
 branchCmdParser :: Parser CmdOpts
 branchCmdParser = Branch . MkBranchOpt <$> some (argument str (metavar "<branch> [<start_point>]"))

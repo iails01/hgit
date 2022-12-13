@@ -12,6 +12,7 @@ module Base
     , resolveOid
     , klog
     , branch
+    , status
     ) where
 
 import           Const
@@ -264,7 +265,7 @@ klog = do
             let refname = makeRelative repoDir path
             (MkDereference _ referent) <- getDeRef (MkRef refname)
             pure (toLabel refname, referent)
-        
+
         toLabel :: FilePath -> String
         toLabel = makeRelative "refs"
 
@@ -299,7 +300,7 @@ traverseCommits objs = do
             else do
                 traverseCommits [objP]
         traverseParents _ = pure []
-    
+
 branch :: String -> String -> IO ()
 branch name oid = do
     resolved <- runMaybeT $ resolveOid oid
@@ -311,4 +312,17 @@ isBranch oid = do
     pure $ case val of
         Nothing -> False
         _ -> True
+
+toBranchName :: Ref -> String
+toBranchName (MkRef path) = makeRelative headsRefPath path
+
+status :: IO ()
+status = do
+    resM <- runMaybeT $ do
+        ref <- getRef headRef
+        pure (case ref of
+                MkDirect hash -> "HEAD detached at " <> (Utf8.toString . BS.take 10 $ hash)
+                MkSymbolic sref -> "On branch " <> toBranchName sref
+                )
+    maybe (error "Unexcept error, HEAD not found!") putStrLn resM
 
