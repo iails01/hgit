@@ -52,12 +52,14 @@ preCheck action = do
 initRepo :: IO ()
 initRepo = do
   createDirectoryIfMissing False repoDir
+  Base.branch "master" "HEAD"
+  Base.checkout "master"
 
 data CatFileOpt = MkCatFileOpt String
 
 catFile :: CatFileOpt -> IO ()
 catFile (MkCatFileOpt hash) = preCheck $ do
-    obj <- Data.getObject hash
+    obj <- runMaybeT $ Data.getObject hash
     maybe mempty (\(Data.MkObj _ content) -> Char8.putStrLn content) obj
 
 newtype HashObjectOpt = MkHashObjectOpt String
@@ -129,6 +131,6 @@ branch (MkBranchOpt []) = preCheck $ do
 
 branch (MkBranchOpt [branchName]) = preCheck $ do
     Base.branch branchName "HEAD"
-    
+
 branch (MkBranchOpt (branchName:startPoint:xs)) = preCheck $ do
     Base.branch branchName startPoint

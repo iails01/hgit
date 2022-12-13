@@ -135,7 +135,7 @@ readObj oid = do
     where
         readObjWithBase :: FilePath -> String -> IO ()
         readObjWithBase root hash = do
-            obj <- getObject hash
+            obj <- runMaybeT $ getObject hash
             maybe (hPutStrLn stderr ("Object " <> hash <> " not exists!")) (readObj' root) (toParsedObj (Utf8.fromString hash) <$> obj)
 
         readObj' :: FilePath -> ParsedObj -> IO ()
@@ -150,7 +150,7 @@ readObj oid = do
         readItem root (MkTreeItem Commit hash name) = mempty
         readItem root (MkTreeItem Tree hash name) = readObjWithBase (root </> Utf8.toString name) (Utf8.toString hash)
         readItem root (MkTreeItem Blob hash name) = do
-            obj <- getObject (Utf8.toString hash)
+            obj <- runMaybeT $ getObject (Utf8.toString hash)
             maybe (hPutStrLn stderr ("Object " <> Utf8.toString hash <> " not exists!")) (readObj' (root </> Utf8.toString name)) (toParsedObj hash <$> obj)
 
 emptyCurrentDir :: IO ()
@@ -169,20 +169,19 @@ commit msg = do
     let headers = [TreeHeader hash] <> maybe mempty (\head -> [ParentHeader head]) headM
     let comm = ParsedCommit "" (toHeaders headers) (Utf8.fromString msg)
     commitHash <- hashObject $ fromParsedObj comm
-    setHEAD (MkDirect commitHash)
+    updateRef headRef (MkDirect commitHash)
     putStrLn . Utf8.toString $ commitHash
 
-getCommit :: String -> MaybeT IO ParsedObj
-getCommit oid = do
-    hash <- resolveOid oid
-    objM <- lift $ getObject (Utf8.toString hash)
-    let resultM = toParsedObj hash <$> objM
-    MaybeT . pure $ resultM
+getCommit :: BS.ByteString -> MaybeT IO ParsedObj
+getCommit hash = do
+    objM <- getObject (Utf8.toString hash)
+    pure $ toParsedObj hash objM
 
 log :: String -> IO ()
 log oid = do
     runMaybeT $ do
-        comm <- getCommit oid
+        hash <- resolveOid oid
+        comm <- getCommit hash
         (comms, _) <- lift $ runStateT (traverseCommits [comm]) Set.empty
         forM_ comms printLog
     pure ()
@@ -197,9 +196,11 @@ log oid = do
 checkout :: String -> IO ()
 checkout oid = do
     runMaybeT $ do
-        comm <- getCommit oid
+        hash <- resolveOid oid
+        comm <- getCommit hash
         hash <- readCommit comm
-        lift $ setHEAD (MkDirect hash)
+        flag <- lift $ isBranch oid
+        lift $ if flag then setHEAD (MkSymbolic (mkHeadsRef oid)) else setHEAD (MkDirect hash)
     pure ()
     where
         readCommit :: ParsedObj -> MaybeT IO BS.ByteString
@@ -209,13 +210,14 @@ checkout oid = do
         readCommit _ = mzero
 
 resolveOid :: String -> MaybeT IO BS.ByteString
-resolveOid oid = fmap (\(MkDereference _ hash) -> hash) (getDeRef (MkRef oid)) <|> objHash oid <|> (lift (hPutStrLn stderr ("Cannot resolve this oid: " <> oid)) >> mzero)
+resolveOid oid = fmap (\(MkDereference _ hash) -> hash) (resolveRef oid) <|> objHash oid <|> (lift (hPutStrLn stderr ("Cannot resolve this oid: " <> oid)) >> mzero)
     where
         objHash :: String -> MaybeT IO BS.ByteString
         objHash hash = do
             exists <- lift $ doesFileExist (objectsDir </> hash)
             if exists then pure (Utf8.fromString hash)
             else mzero
+        resolveRef path = Prelude.foldl (\ acc r -> acc <|> getDeRef r) mzero (mkAllRefs path)
 
 tag :: String -> String -> IO ()
 tag tagName oid = do
@@ -228,12 +230,12 @@ klog = do
     maybe (hPutStrLn stderr "Refers crashed!" >> exitFailure) klog' refsM
     where
         klog' refs = do
-            let hashes = Set.toList . Set.fromList $ fmap (Utf8.toString . snd) refs
+            let hashes = Set.toList . Set.fromList $ fmap snd refs
             commits <- getCommits hashes
             (lists, v) <- runStateT (traverseCommits commits) Set.empty
             let parentLinks = foldl' reducer "" lists
-            let dot = "digraph commits {\n" <> mconcat [ "\"" <> refname <> "\" [shape=note]\n\"" <> refname <> "\" -> \"" <> Utf8.toString referent <> "\"\n"
-                    | (refname, referent) <- refs ] <> (Utf8.toString parentLinks <> "\n}")
+            let dot = "digraph commits {\n" <> mconcat [ "\"" <> label <> "\" [shape=note]\n\"" <> label <> "\" -> \"" <> Utf8.toString referent <> "\"\n"
+                    | (label, referent) <- refs ] <> (Utf8.toString parentLinks <> "\n}")
             (stdin, _, _, _) <- runInteractiveCommand "dot -Tjpg -o k.jpg"
             hPutStr stdin dot
             hClose stdin
@@ -248,14 +250,19 @@ klog = do
         getAllRefs :: MaybeT IO [(String, BS.ByteString)]
         getAllRefs = do
             paths <- lift $ listFiles refsDir
-            forM paths resolveRef
-        -- (refname, referent)
+            forM ("HEAD": paths) resolveRef
+        -- (label, referent)
         resolveRef :: FilePath -> MaybeT IO (String, BS.ByteString)
         resolveRef path = do
-            let refname = makeRelative refsDir path
+            -- makeRelative ".hgit" "HEAD"
+            let refname = makeRelative repoDir path
             (MkDereference _ referent) <- getDeRef (MkRef refname)
-            pure (refname, referent)
-        getCommits :: [String] -> IO [ParsedObj]
+            pure (toLabel refname, referent)
+        
+        toLabel :: FilePath -> String
+        toLabel = makeRelative "refs"
+
+        getCommits :: [BS.ByteString] -> IO [ParsedObj]
         getCommits hashes = do
             let mapper = runMaybeT . getCommit
             let actions = fmap mapper hashes
@@ -279,7 +286,7 @@ traverseCommits objs = do
         traverseParents :: ParsedObj -> StateT Visited IO [ParsedObj]
         traverseParents (ParsedCommit hash MkCommitHeaders{parent=Just p} _) = do
             visited <- get
-            Just objP <- lift . runMaybeT $ getCommit $ Utf8.toString p
+            Just objP <- lift . runMaybeT $ getCommit p
             let hashP = parsedObjHash objP
             if hashP `elem` visited then
                 pure []
@@ -291,3 +298,11 @@ branch :: String -> String -> IO ()
 branch name oid = do
     resolved <- runMaybeT $ resolveOid oid
     maybe (hPutStrLn stderr (oid <> " not exists!") >> exitFailure) (setRef (mkHeadsRef name) . MkDirect) resolved
+
+isBranch :: String -> IO Bool
+isBranch oid = do
+    val <- runMaybeT $ getRef (mkHeadsRef oid)
+    pure $ case val of
+        Nothing -> False
+        _ -> True
+

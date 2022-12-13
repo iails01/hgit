@@ -2,6 +2,7 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE GADTs #-}
+{-# LANGUAGE StandaloneDeriving #-}
 
 module Data
     ( hashObject
@@ -9,6 +10,7 @@ module Data
     , setHEAD
     , getHEAD
     , setRef
+    , updateRef
     , getRef
     , getDeRef
     , RefObjKind(..)
@@ -21,6 +23,7 @@ module Data
     , headRef
     , mkTagsRef
     , mkHeadsRef
+    , mkAllRefs
 ) where
 
 import           Const
@@ -45,7 +48,7 @@ data ObjType = Blob | Tree | Commit deriving(Eq, Ord, Show)
 
 data Obj = MkObj ObjType BS.ByteString
 
-newtype Ref = MkRef FilePath
+newtype Ref = MkRef FilePath deriving(Show)
 
 data RefObjKind = RefKind | DerefKind
 
@@ -54,9 +57,13 @@ data RefObj (a :: RefObjKind) where
     MkSymbolic :: Ref -> RefObj RefKind
     MkDereference :: Ref -> BS.ByteString -> RefObj DerefKind
 
+deriving instance Show (RefObj a)
+
 headRef = MkRef "HEAD"
 mkTagsRef tagName = MkRef ("refs" </> "tags" </> tagName)
 mkHeadsRef tagName = MkRef ("refs" </> "heads" </> tagName)
+mkAllRefs :: FilePath -> [Ref]
+mkAllRefs path = fmap (\p -> MkRef $ p </> path) ["refs" </> "tags", "refs" </> "heads", "refs", ""]
 
 hashObject :: Obj -> IO BS.ByteString
 hashObject (MkObj objType fileContent) = do
@@ -77,15 +84,15 @@ toObjType "tree" = Tree
 toObjType "commit" = Commit
 toObjType _      = Blob
 
-getObject :: String -> IO (Maybe Obj)
+getObject :: String -> MaybeT IO Obj
 getObject hash = do
     let file = objectsDir </> hash
-    exists <- doesFileExist file
+    exists <- lift $ doesFileExist file
     if exists then do
-        bs <- BS.readFile file
+        bs <- lift $ BS.readFile file
         let (fileType, content) = BS.breakSubstring "\0" bs
-        pure . Just $ MkObj (toObjType fileType) (BS.drop 1 content)
-    else pure Nothing
+        pure $ MkObj (toObjType fileType) (BS.drop 1 content)
+    else mzero
 
 getRefVal :: Ref -> MaybeT IO BS.ByteString
 getRefVal (MkRef path) = do
@@ -98,30 +105,30 @@ getRefVal (MkRef path) = do
             Right v -> pure v
     else mzero
 
-allRefs :: Ref -> [Ref]
-allRefs (MkRef path) = fmap (\p -> MkRef $ p </> path) ["refs" </> "tags", "refs" </> "heads", "refs", ""]
-
 getDeRef :: Ref -> MaybeT IO (RefObj DerefKind)
-getDeRef ref = Prelude.foldl (\ acc r -> acc <|> getDeRef' r) mzero (allRefs ref)
-    where
-        getDeRef' ref = do
-            val <- getRefVal ref
-            let (t, v) = BS.breakSubstring ": " val
-            if t == "ref" then do
-                refObj <- getDeRef' (MkRef . Utf8.toString . BS.drop 2 $ v)
-                pure $ case refObj of
-                    MkDereference _ hash -> MkDereference ref hash
-            else pure $ MkDereference ref val
+getDeRef ref@(MkRef p) = do
+    -- lift $ print $ "get: " <> p
+    val <- getRefVal ref
+    -- lift $ print $ "val: " <> val
+    let (t, v) = BS.breakSubstring ": " val
+    if t == "ref" then do
+        getDeRef (MkRef . Utf8.toString . BS.drop 2 $ v)
+    else pure $ MkDereference ref val
+            
 
 getRef ::  Ref -> MaybeT IO (RefObj RefKind)
-getRef ref = Prelude.foldl (\ acc r -> acc <|> getRef' r) mzero (allRefs ref)
-    where
-        getRef' :: Ref -> MaybeT IO (RefObj RefKind)
-        getRef' ref = do
-            val <- getRefVal ref
-            let (t, v) = BS.breakSubstring ": " val
-            if t == "ref" then pure $ MkSymbolic (MkRef . Utf8.toString . BS.drop 2 $ v)
-            else pure $ MkDirect val
+getRef ref = do
+    val <- getRefVal ref
+    let (t, v) = BS.breakSubstring ": " val
+    if t == "ref" then pure $ MkSymbolic (MkRef . Utf8.toString . BS.drop 2 $ v)
+    else pure $ MkDirect val
+
+updateRef :: Ref -> RefObj RefKind -> IO ()
+updateRef ref refObj = do
+    drefM <- runMaybeT $ do
+       (MkDereference dref hash) <- getDeRef ref
+       pure dref
+    maybe (setRef ref refObj) (\dref -> setRef dref refObj) drefM
 
 setRef :: Ref -> RefObj RefKind -> IO ()
 setRef (MkRef path) refObj = do
