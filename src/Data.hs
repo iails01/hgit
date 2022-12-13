@@ -107,13 +107,23 @@ getRefVal (MkRef path) = do
 
 getDeRef :: Ref -> MaybeT IO (RefObj DerefKind)
 getDeRef ref@(MkRef p) = do
-    -- lift $ print $ "get: " <> p
-    val <- getRefVal ref
-    -- lift $ print $ "val: " <> val
-    let (t, v) = BS.breakSubstring ": " val
-    if t == "ref" then do
-        getDeRef (MkRef . Utf8.toString . BS.drop 2 $ v)
-    else pure $ MkDereference ref val
+    ei <- lift $ getDeRefInternal ref
+    case ei of
+        Left _ -> mzero
+        Right r -> pure r
+
+-- left: 可解析到的最后的ref
+getDeRefInternal :: Ref -> IO (Either Ref (RefObj DerefKind))
+getDeRefInternal ref@(MkRef p) = do
+    val <- runMaybeT $ getRefVal ref
+    process val
+    where
+        process Nothing = pure $ Left ref
+        process (Just val) = do
+            let (t, v) = BS.breakSubstring ": " val
+            if t == "ref" then do
+                getDeRefInternal (MkRef . Utf8.toString . BS.drop 2 $ v)
+            else pure . Right $ MkDereference ref val
             
 
 getRef ::  Ref -> MaybeT IO (RefObj RefKind)
@@ -125,10 +135,11 @@ getRef ref = do
 
 updateRef :: Ref -> RefObj RefKind -> IO ()
 updateRef ref refObj = do
-    drefM <- runMaybeT $ do
-       (MkDereference dref hash) <- getDeRef ref
-       pure dref
-    maybe (setRef ref refObj) (\dref -> setRef dref refObj) drefM
+    val <- getDeRefInternal ref
+    let lastRef = (case val of
+            Left lastRef -> lastRef
+            Right (MkDereference dref _) -> dref)
+    setRef lastRef refObj
 
 setRef :: Ref -> RefObj RefKind -> IO ()
 setRef (MkRef path) refObj = do

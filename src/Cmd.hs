@@ -50,10 +50,7 @@ preCheck action = do
         exitFailure
 
 initRepo :: IO ()
-initRepo = do
-  createDirectoryIfMissing False repoDir
-  Base.branch "master" "HEAD"
-  Base.checkout "master"
+initRepo = Base.initRepo
 
 data CatFileOpt = MkCatFileOpt String
 

@@ -2,7 +2,8 @@
 {-# LANGUAGE GADTs #-}
 
 module Base
-    (writeTree
+    ( initRepo
+    , writeTree
     , readObj
     , commit
     , log
@@ -95,6 +96,11 @@ toHeaders hs = foldl' put MkCommitHeaders {raw = hs, tree = error "Commit no tre
     where
         put headers (TreeHeader bs) = headers {tree = bs}
         put headers (ParentHeader bs) = headers {parent = Just bs}
+
+initRepo :: IO ()
+initRepo = do
+    createDirectoryIfMissing False repoDir
+    setRef headRef (MkSymbolic (mkHeadsRef "master"))
 
 writeTree :: FilePath -> IO BS.ByteString
 writeTree dir = do
