@@ -51,7 +51,7 @@ data ObjType = Blob | Tree | Commit deriving(Eq, Ord, Show)
 
 data Obj = MkObj ObjType BS.ByteString
 
-newtype Ref = MkRef FilePath deriving(Show)
+newtype Ref = MkRef FilePath deriving(Show, Eq)
 
 data RefObjKind = RefKind | DerefKind
 
