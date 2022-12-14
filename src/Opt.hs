@@ -22,6 +22,7 @@ data CmdOpts
   | Klog !KlogOpt
   | Branch !BranchOpt
   | Status !StatusOpt
+  | Reset !ResetOpt
 
 parserInfo :: ParserInfo CmdOpts
 parserInfo = info (helper <*> cmdParser)
@@ -42,6 +43,7 @@ cmdParser = hsubparser (
     <> command "k" (info kCmdParser (progDesc "Log commits by graphic."))
     <> command "branch" (info branchCmdParser (progDesc "Branch operations."))
     <> command "status" (info statusCmdParser (progDesc "Show HEAD status."))
+    <> command "reset" (info resetCmdParser (progDesc "Reset HEAD."))
   )
 
 initCmdParser :: Parser CmdOpts
@@ -60,13 +62,13 @@ readTreeCmdParser :: Parser CmdOpts
 readTreeCmdParser = ReadTree <$> argument (str <&> MkReadTreeOpt) (metavar "<hash>")
 
 logCmdParser :: Parser CmdOpts
-logCmdParser = Log <$> (pure MkEmptyLogOpt <|> argument (str <&> MkLogOpt) (metavar "<hash>"))
+logCmdParser = Log <$> (pure MkEmptyLogOpt <|> argument (str <&> MkLogOpt) (metavar "<oid>"))
 
 checkoutCmdParser :: Parser CmdOpts
-checkoutCmdParser = Checkout <$> argument (str <&> MkCheckoutOpt) (metavar "<hash>")
+checkoutCmdParser = Checkout <$> argument (str <&> MkCheckoutOpt) (metavar "<oid>")
 
 tagCmdParser :: Parser CmdOpts
-tagCmdParser = Tag . MkTagOpt <$> some (argument str (metavar "<tag_name> [<hash>]"))
+tagCmdParser = Tag . MkTagOpt <$> some (argument str (metavar "<tag_name> [<oid>]"))
 
 kCmdParser :: Parser CmdOpts
 kCmdParser = pure $ Klog MkKlogOpt
@@ -76,6 +78,17 @@ statusCmdParser = pure $ Status MkStatusOpt
 
 branchCmdParser :: Parser CmdOpts
 branchCmdParser = Branch . MkBranchOpt <$> many (argument str (metavar "<branch> [<start_point>]"))
+
+resetCmdParser :: Parser CmdOpts
+resetCmdParser = Reset <$> resetOptParser
+    where
+        resetOptParser :: Parser ResetOpt
+        resetOptParser = MkResetOpt <$> some (argument str (metavar "<hash>")) <*> (
+                flag' Soft (long "soft" <> help "Soft mode (default)")
+                <|> flag' Mixed (long "mixed" <> help "Mixed mode")
+                <|> flag' Hard (long "hard" <> help "Hard mode")
+                <|> pure Soft
+            )
 
 commitCmdParser :: Parser CmdOpts
 commitCmdParser = Commit <$> commitOptParser

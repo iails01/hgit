@@ -12,6 +12,8 @@ module Cmd
   , KlogOpt(..)
   , BranchOpt(..)
   , StatusOpt(..)
+  , ResetOpt(..)
+  , Base.ResetMode(..)
   , initRepo
   , catFile
   , hashObject
@@ -24,6 +26,7 @@ module Cmd
   , klog
   , branch
   , status
+  , reset
   ) where
 
 import qualified Data.ByteString.Char8 as Char8
@@ -139,3 +142,12 @@ data StatusOpt = MkStatusOpt
 status :: StatusOpt -> IO ()
 status _ = preCheck $ do
     Base.status
+
+data ResetOpt = MkResetOpt [String] Base.ResetMode
+
+reset :: ResetOpt -> IO ()
+reset (MkResetOpt (oid:xs) mode) = preCheck $ do
+    Base.reset oid mode
+
+reset _ = preCheck $ do
+    hPutStrLn stderr "Oid cannot be empty!"

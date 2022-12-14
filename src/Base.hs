@@ -15,6 +15,8 @@ module Base
     , branch
     , listBranchs
     , status
+    , reset
+    , ResetMode(..)
     ) where
 
 import           Const
@@ -384,3 +386,13 @@ status = do
                 )
     maybe (error "Unexcept error, HEAD not found!") putStrLn resM
 
+data ResetMode = Soft | Mixed | Hard
+
+reset :: String -> ResetMode -> IO ()
+reset oid mode = void . runMaybeT $ do
+    hash <- resolveOid oid
+    lift $ updateRef headRef (MkDirect hash)
+    case mode of 
+        Soft -> pure ()
+        Mixed -> pure ()
+        Hard -> lift $ checkout "HEAD"
