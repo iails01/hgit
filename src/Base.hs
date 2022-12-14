@@ -16,7 +16,11 @@ module Base
     , listBranchs
     , status
     , reset
+    , showCommit
     , ResetMode(..)
+    , ParsedObj(..)
+    , TreeItem(..)
+    , compareTreeItems
     ) where
 
 import           Const
@@ -51,6 +55,7 @@ import Data.Map (Map)
 import qualified Data.Map as M
 import Data.Function (on)
 import Data.Bifunctor (first)
+import Debug.Trace(trace)
 
 data ParsedObj
     = ParsedBlob BS.ByteString BS.ByteString
@@ -58,6 +63,7 @@ data ParsedObj
     | ParsedCommit BS.ByteString CommitHeaders BS.ByteString
     deriving(Show)
 
+-- type hash filepath
 data TreeItem = MkTreeItem ObjType BS.ByteString BS.ByteString deriving(Eq, Ord, Show)
 data CommitHeader = TreeHeader BS.ByteString | ParentHeader BS.ByteString deriving(Show)
 data CommitHeaders = MkCommitHeaders {raw :: [CommitHeader], tree :: BS.ByteString, parent :: Maybe BS.ByteString} deriving(Show)
@@ -144,6 +150,24 @@ listFiles root = do
 
 validDir = (`notElem` [".","..",repoDir])
 
+
+getParsedObj :: BS.ByteString -> MaybeT IO ParsedObj
+getParsedObj tree = toParsedObj tree <$> getObject (Utf8.toString tree)
+
+getTree :: BS.ByteString -> MaybeT IO ParsedObj
+getTree tree = do
+    obj <- toParsedObj tree <$> getObject (Utf8.toString tree)
+    case obj of
+        ParsedTree {} -> pure obj
+        _ -> mzero
+
+getCommit :: BS.ByteString -> MaybeT IO ParsedObj
+getCommit hash = do
+    parsed <- getParsedObj hash
+    case parsed of
+        ParsedCommit {} -> pure parsed
+        _ -> mzero
+
 readObj :: String -> IO ()
 readObj oid = do
     hashM <- runMaybeT $ resolveOid oid
@@ -153,23 +177,23 @@ readObj oid = do
     where
         readObjWithBase :: FilePath -> String -> IO ()
         readObjWithBase root hash = do
-            obj <- runMaybeT $ getObject hash
-            maybe (hPutStrLn stderr ("Object " <> hash <> " not exists!")) (readObj' root) (toParsedObj (Utf8.fromString hash) <$> obj)
+            objM <- runMaybeT $ getParsedObj (Utf8.fromString hash)
+            maybe (hPutStrLn stderr ("Object " <> hash <> " not exists!")) (readObj' root) objM
 
         readObj' :: FilePath -> ParsedObj -> IO ()
         readObj' path ParsedCommit {} = mempty
         readObj' path (ParsedBlob _ content) = BS.writeFile path content
-
         readObj' path (ParsedTree _ items) = do
             createDirectoryIfMissing False path
             let actions = map (readItem path) items
             foldl' (>>) mempty actions
+
         readItem :: FilePath -> TreeItem -> IO ()
         readItem root (MkTreeItem Commit hash name) = mempty
         readItem root (MkTreeItem Tree hash name) = readObjWithBase (root </> Utf8.toString name) (Utf8.toString hash)
         readItem root (MkTreeItem Blob hash name) = do
-            obj <- runMaybeT $ getObject (Utf8.toString hash)
-            maybe (hPutStrLn stderr ("Object " <> Utf8.toString hash <> " not exists!")) (readObj' (root </> Utf8.toString name)) (toParsedObj hash <$> obj)
+            objM <- runMaybeT $ getParsedObj hash
+            maybe (hPutStrLn stderr ("Object " <> Utf8.toString hash <> " not exists!")) (readObj' (root </> Utf8.toString name)) objM
 
 emptyCurrentDir :: IO ()
 emptyCurrentDir = emptyDir "."
@@ -190,11 +214,6 @@ commit msg = do
     updateRef headRef (MkDirect commitHash)
     putStrLn . Utf8.toString $ commitHash
 
-getCommit :: BS.ByteString -> MaybeT IO ParsedObj
-getCommit hash = do
-    objM <- getObject (Utf8.toString hash)
-    pure $ toParsedObj hash objM
-
 log :: String -> IO ()
 log oid = do
     runMaybeT $ do
@@ -205,7 +224,7 @@ log oid = do
         headR <- getDeRef headRef
         let sorted = sortBy (compare `on` fst) $ fmap (\ (x, y) -> (y, [toBranchName x])) refs
         let hashLabelMap = putHead headR $ M.fromAscListWith (<>) sorted
-        forM_ comms (printLog hashLabelMap)
+        forM_ comms (printLogWithLabels hashLabelMap)
     pure ()
 
     where
@@ -223,12 +242,18 @@ log oid = do
                 attached = fmap (\l -> if l == headLabel then "HEAD -> " <> l else l) branches
             in attached
 
-        printLog :: Map BS.ByteString [String] -> ParsedObj -> MaybeT IO ()
-        printLog hashLabelMap (ParsedCommit hash headers msg) = do
-            let labelsM = M.lookup hash hashLabelMap
-            let lables = maybe "" (\ls -> " (" <> intercalate ", " ls <> ")") labelsM
-            lift $ putStrLn ("commit " <> Utf8.toString hash <> lables <> "\n\n\t" <> Utf8.toString msg <> "\n")
-        printLog _ _ = mzero
+printLogWithLabels :: Map BS.ByteString [String] -> ParsedObj -> MaybeT IO ()
+printLogWithLabels hashLabelMap (ParsedCommit hash headers msg) = do
+    let labelsM = M.lookup hash hashLabelMap
+    let labels = maybe "" (\ls -> " (" <> intercalate ", " ls <> ")") labelsM
+    lift $ printCommitMsg hash labels msg
+    where
+        printCommitMsg hash labels msg = do
+            putStrLn ("commit " <> Utf8.toString hash <> labels <> "\n\n\t" <> Utf8.toString msg <> "\n")
+printLogWithLabels _ _ = mzero
+
+printLog :: ParsedObj -> MaybeT IO ()
+printLog = printLogWithLabels M.empty
 
 checkout :: String -> IO ()
 checkout oid@"HEAD" = void . runMaybeT $ readOid oid
@@ -250,7 +275,7 @@ readOid oid = do
         readCommit _ = mzero
 
 resolveOid :: String -> MaybeT IO BS.ByteString
-resolveOid oid = fmap (\(MkDereference _ hash) -> hash) (resolveRef oid) <|> objHash oid <|> (lift (hPutStrLn stderr ("Cannot resolve this oid: " <> oid)) >> mzero)
+resolveOid oid = objHash oid <|> fmap (\(MkDereference _ hash) -> hash) (resolveRef oid) <|> (lift (hPutStrLn stderr ("Cannot resolve this oid: " <> oid)) >> mzero)
     where
         objHash :: String -> MaybeT IO BS.ByteString
         objHash hash = do
@@ -392,7 +417,38 @@ reset :: String -> ResetMode -> IO ()
 reset oid mode = void . runMaybeT $ do
     hash <- resolveOid oid
     lift $ updateRef headRef (MkDirect hash)
-    case mode of 
+    case mode of
         Soft -> pure ()
         Mixed -> pure ()
         Hard -> lift $ checkout "HEAD"
+
+showCommit :: String -> IO ()
+showCommit oid = void . runMaybeT $ do
+    hash <- resolveOid oid
+    comm <- getCommit hash
+    printLog comm
+    let (ParsedCommit _ MkCommitHeaders{parent = pm, tree = tree} _) = comm
+    a@(ParsedCommit _ MkCommitHeaders{tree = pTree} _) <- maybe mzero getCommit pm
+    treeObj <- getTree tree
+    pTreeObj <- getTree pTree
+    let diff = compareTree treeObj pTreeObj
+    lift $ putStrLn diff
+
+compareTree :: ParsedObj -> ParsedObj -> String
+compareTree (ParsedTree _ items1) (ParsedTree _ items2) = compareTreeItems items1 items2
+compareTree _ _ = error "Unexcept object type!"
+
+traceValue s v = trace (s <> show v) v
+
+compareTreeItems :: [TreeItem] -> [TreeItem] -> String
+compareTreeItems items1 items2 = M.foldlWithKey reducer "" diffMap
+    where
+        reducer acc file s = acc <> if Set.size s > 1 then "changed: " <> file <> "\n" else ""
+        diffMap = putItemHashes (putItemHashes M.empty items1) items2
+        putItemHashes :: Map FilePath (Set BS.ByteString) -> [TreeItem] -> Map FilePath (Set BS.ByteString)
+        putItemHashes = foldl' putItemHash
+
+        putItemHash :: Map FilePath (Set BS.ByteString) -> TreeItem -> Map FilePath (Set BS.ByteString)
+        putItemHash acc (MkTreeItem _ hash file) = M.alter (alter' hash) (Utf8.toString file) acc
+        alter' hash Nothing = Just $ Set.singleton hash
+        alter' hash (Just s) = Just $ Set.insert hash s

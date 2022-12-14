@@ -23,3 +23,4 @@ handleCmd (Klog opt) = klog opt
 handleCmd (Branch opt) = branch opt
 handleCmd (Status opt) = status opt
 handleCmd (Reset opt) = reset opt
+handleCmd (Show opt) = showCommit opt

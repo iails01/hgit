@@ -23,6 +23,7 @@ data CmdOpts
   | Branch !BranchOpt
   | Status !StatusOpt
   | Reset !ResetOpt
+  | Show !ShowOpt
 
 parserInfo :: ParserInfo CmdOpts
 parserInfo = info (helper <*> cmdParser)
@@ -44,6 +45,7 @@ cmdParser = hsubparser (
     <> command "branch" (info branchCmdParser (progDesc "Branch operations."))
     <> command "status" (info statusCmdParser (progDesc "Show HEAD status."))
     <> command "reset" (info resetCmdParser (progDesc "Reset HEAD."))
+    <> command "show" (info showCmdParser (progDesc "Show commit info."))
   )
 
 initCmdParser :: Parser CmdOpts
@@ -78,6 +80,9 @@ statusCmdParser = pure $ Status MkStatusOpt
 
 branchCmdParser :: Parser CmdOpts
 branchCmdParser = Branch . MkBranchOpt <$> many (argument str (metavar "<branch> [<start_point>]"))
+
+showCmdParser :: Parser CmdOpts
+showCmdParser = Show . MkShowOpt <$> many (argument str (metavar "<oid>"))
 
 resetCmdParser :: Parser CmdOpts
 resetCmdParser = Reset <$> resetOptParser

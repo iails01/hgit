@@ -14,6 +14,7 @@ module Cmd
   , StatusOpt(..)
   , ResetOpt(..)
   , Base.ResetMode(..)
+  , ShowOpt(..)
   , initRepo
   , catFile
   , hashObject
@@ -27,6 +28,7 @@ module Cmd
   , branch
   , status
   , reset
+  , showCommit
   ) where
 
 import qualified Data.ByteString.Char8 as Char8
@@ -150,4 +152,14 @@ reset (MkResetOpt (oid:xs) mode) = preCheck $ do
     Base.reset oid mode
 
 reset _ = preCheck $ do
+    hPutStrLn stderr "Oid cannot be empty!"
+
+
+data ShowOpt = MkShowOpt [String]
+
+showCommit :: ShowOpt -> IO ()
+showCommit (MkShowOpt (oid:xs)) = preCheck $ do
+    Base.showCommit oid
+
+showCommit _ = preCheck $ do
     hPutStrLn stderr "Oid cannot be empty!"

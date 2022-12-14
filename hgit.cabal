@@ -25,10 +25,12 @@ library hgit-lib
     exposed-modules:  Opt,
                       Cmd,
                       Util,
-                      Data
+                      Data,
+                      Base
                       
     other-modules:    Const,
-                      Base
+                    --   Base,
+                      Diff
 
     build-depends:    base ^>=4.14.3.0,
                       optparse-applicative,
