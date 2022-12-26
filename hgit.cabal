@@ -42,7 +42,8 @@ library hgit-lib
                       transformers,
                       mtl,
                       process,
-                      containers
+                      containers,
+                      array
 
     hs-source-dirs:   src
 

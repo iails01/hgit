@@ -1,6 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE RankNTypes #-}
 
 module Base
     ( initRepo
@@ -431,7 +432,7 @@ showCommit oid = void . runMaybeT $ do
     a@(ParsedCommit _ MkCommitHeaders{tree = pTree} _) <- maybe mzero getCommit pm
     treeObj <- getTree tree
     pTreeObj <- getTree pTree
-    let diff = compareTree treeObj pTreeObj
+    let diff = compareTree pTreeObj treeObj
     lift $ putStrLn diff
 
 compareTree :: ParsedObj -> ParsedObj -> String
@@ -440,15 +441,29 @@ compareTree _ _ = error "Unexcept object type!"
 
 traceValue s v = trace (s <> show v) v
 
+
+type TwoHashes = (Maybe BS.ByteString, Maybe BS.ByteString)
+type Modifier = forall a. (a -> (Maybe a, Maybe a) -> (Maybe a, Maybe a))
+
 compareTreeItems :: [TreeItem] -> [TreeItem] -> String
 compareTreeItems items1 items2 = M.foldlWithKey reducer "" diffMap
     where
-        reducer acc file s = acc <> if Set.size s > 1 then "changed: " <> file <> "\n" else ""
-        diffMap = putItemHashes (putItemHashes M.empty items1) items2
-        putItemHashes :: Map FilePath (Set BS.ByteString) -> [TreeItem] -> Map FilePath (Set BS.ByteString)
-        putItemHashes = foldl' putItemHash
+        reducer acc file s = acc <> diffMsg file s
+        diffMsg file (Just a, Nothing) = "deleted: " <> file <> "\n"
+        diffMsg file (Nothing, Just a) = "added: " <> file <> "\n"
+        diffMsg file (Nothing, Nothing) = ""
+        diffMsg file (Just a, Just b) = "changed: " <> file <> "\n"
+        diffMap = putItemHashes modifyRight (putItemHashes modifyLeft M.empty items1) items2
+        putItemHashes :: Modifier -> Map FilePath TwoHashes -> [TreeItem] -> Map FilePath TwoHashes
+        putItemHashes modifier = foldl' $ putItemHash modifier
 
-        putItemHash :: Map FilePath (Set BS.ByteString) -> TreeItem -> Map FilePath (Set BS.ByteString)
-        putItemHash acc (MkTreeItem _ hash file) = M.alter (alter' hash) (Utf8.toString file) acc
-        alter' hash Nothing = Just $ Set.singleton hash
-        alter' hash (Just s) = Just $ Set.insert hash s
+        putItemHash :: Modifier -> Map FilePath TwoHashes -> TreeItem -> Map FilePath TwoHashes
+        putItemHash modifier acc (MkTreeItem _ hash file) = M.alter (alter' modifier hash) (Utf8.toString file) acc
+        alter' modifier hash Nothing = Just $ modifier hash (Nothing, Nothing)
+        alter' modifier hash (Just s) = Just $ modifier hash s
+
+        modifyLeft :: Modifier
+        modifyLeft a (x, y) = (Just a, y)
+
+        modifyRight :: Modifier
+        modifyRight a (x, y) = (x, Just a)
