@@ -57,6 +57,7 @@ import qualified Data.Map as M
 import Data.Function (on)
 import Data.Bifunctor (first)
 import Debug.Trace(trace)
+import Diff (diff, DiffElement (..))
 
 data ParsedObj
     = ParsedBlob BS.ByteString BS.ByteString
@@ -432,10 +433,11 @@ showCommit oid = void . runMaybeT $ do
     a@(ParsedCommit _ MkCommitHeaders{tree = pTree} _) <- maybe mzero getCommit pm
     treeObj <- getTree tree
     pTreeObj <- getTree pTree
-    let diff = compareTree pTreeObj treeObj
-    lift $ putStrLn diff
+    lift $ do 
+        diff <- compareTree pTreeObj treeObj
+        putStrLn diff
 
-compareTree :: ParsedObj -> ParsedObj -> String
+compareTree :: ParsedObj -> ParsedObj -> IO String
 compareTree (ParsedTree _ items1) (ParsedTree _ items2) = compareTreeItems items1 items2
 compareTree _ _ = error "Unexcept object type!"
 
@@ -445,14 +447,27 @@ traceValue s v = trace (s <> show v) v
 type TwoHashes = (Maybe BS.ByteString, Maybe BS.ByteString)
 type Modifier = forall a. (a -> (Maybe a, Maybe a) -> (Maybe a, Maybe a))
 
-compareTreeItems :: [TreeItem] -> [TreeItem] -> String
-compareTreeItems items1 items2 = M.foldlWithKey reducer "" diffMap
+compareTreeItems :: [TreeItem] -> [TreeItem] -> IO String
+compareTreeItems items1 items2 = do
+    s <- runMaybeT result
+    maybe mempty pure s
     where
-        reducer acc file s = acc <> diffMsg file s
-        diffMsg file (Just a, Nothing) = "deleted: " <> file <> "\n"
-        diffMsg file (Nothing, Just a) = "added: " <> file <> "\n"
-        diffMsg file (Nothing, Nothing) = ""
-        diffMsg file (Just a, Just b) = "changed: " <> file <> "\n"
+        result = M.foldlWithKey reducer (pure "") diffMap
+        reducer acc file s = fmap (<>) acc <*> diffMsg file s
+        diffMsg file (Just a, Nothing) = pure $ "deleted: " <> file <> "\n"
+        diffMsg file (Nothing, Just a) = pure $ "added: " <> file <> "\n"
+        diffMsg file (Nothing, Nothing) = pure ""
+        diffMsg file (Just a, Just b) = do
+            (ParsedBlob _ aContent) <- toParsedObj a <$> getObject (Utf8.toString a)
+            (ParsedBlob _ bContent) <- toParsedObj b <$> getObject (Utf8.toString b)
+            pure $ "changed: " <> file <> "\n" <> if BS.isValidUtf8 aContent && BS.isValidUtf8 aContent then do
+                let d = diff (lines . Utf8.toString $ aContent) (lines . Utf8.toString $ bContent)
+                    mapper (InFirst v) = fmap ("-" <>) v
+                    mapper (InSecond v) = fmap ("+" <>) v
+                    mapper _ = []
+                    diffLines = unlines . join $ filter (/= []) $ fmap mapper d
+                diffLines <> "\n"
+            else ""
         diffMap = putItemHashes modifyRight (putItemHashes modifyLeft M.empty items1) items2
         putItemHashes :: Modifier -> Map FilePath TwoHashes -> [TreeItem] -> Map FilePath TwoHashes
         putItemHashes modifier = foldl' $ putItemHash modifier

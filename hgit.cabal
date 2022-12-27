@@ -37,7 +37,7 @@ library hgit-lib
                       directory,
                       filepath,
                       cryptohash,
-                      bytestring,
+                      bytestring ^>= 0.11.2.0,
                       utf8-string,
                       transformers,
                       mtl,
