@@ -35,7 +35,7 @@ import           Data.Maybe            (catMaybes, mapMaybe)
 import           System.Directory      (createDirectoryIfMissing,
                                         doesDirectoryExist,
                                         getDirectoryContents, removePathForcibly, doesFileExist)
-import           System.Exit           (exitFailure)
+import           System.Exit           (exitFailure, exitSuccess)
 import           System.FilePath       ((</>), makeRelative)
 import           System.IO             (hPutStrLn, stderr, hPutStr, hClose)
 import qualified Data.ByteString.Char8 as Char8
@@ -430,12 +430,13 @@ showCommit oid = void . runMaybeT $ do
     comm <- getCommit hash
     printLog comm
     let (ParsedCommit _ MkCommitHeaders{parent = pm, tree = tree} _) = comm
-    a@(ParsedCommit _ MkCommitHeaders{tree = pTree} _) <- maybe mzero getCommit pm
+        emptyed = lift (putStrLn "No parent commit.") >> mzero
+    a@(ParsedCommit _ MkCommitHeaders{tree = pTree} _) <- maybe emptyed getCommit pm
     treeObj <- getTree tree
     pTreeObj <- getTree pTree
-    lift $ do 
+    lift $ do
         diff <- compareTree pTreeObj treeObj
-        putStrLn diff
+        putStr diff
 
 compareTree :: ParsedObj -> ParsedObj -> IO String
 compareTree (ParsedTree _ items1) (ParsedTree _ items2) = compareTreeItems items1 items2
@@ -464,9 +465,9 @@ compareTreeItems items1 items2 = do
                 let d = diff (lines . Utf8.toString $ aContent) (lines . Utf8.toString $ bContent)
                     mapper (InFirst v) = fmap ("-" <>) v
                     mapper (InSecond v) = fmap ("+" <>) v
-                    mapper _ = []
+                    mapper (InBoth v) = fmap (" " <>) v
                     diffLines = unlines . join $ filter (/= []) $ fmap mapper d
-                diffLines <> "\n"
+                diffLines
             else ""
         diffMap = putItemHashes modifyRight (putItemHashes modifyLeft M.empty items1) items2
         putItemHashes :: Modifier -> Map FilePath TwoHashes -> [TreeItem] -> Map FilePath TwoHashes

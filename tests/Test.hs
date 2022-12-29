@@ -36,6 +36,6 @@ unitTests = testGroup "Unit tests"
     , testCase "compareTreeItems" $ do
         let i1 = [Base.MkTreeItem Data.Blob "abc" "file1.txt"]
             i2 = [Base.MkTreeItem Data.Blob "abc2" "file1.txt"]
-        Base.compareTreeItems i1 i2 `compare` "changed: file1.txt\n" @?= EQ
-
+        c <- Base.compareTreeItems i1 i2
+        c `compare` "changed: file1.txt\n" @?= EQ
   ]
